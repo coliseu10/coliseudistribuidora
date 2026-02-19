@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
-import Navbar from "./components/navbar";
 import Footer from "./components/footer";
 
 import Home from "./pages/Home";
@@ -11,9 +10,7 @@ import Admin from "./pages/Admin";
 export default function App() {
   return (
     <BrowserRouter>
-      <Navbar />
-
-      <div className="min-h-[80vh]">
+      <main className="min-h-[80vh]">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/admin/login" element={<Login />} />
@@ -29,7 +26,7 @@ export default function App() {
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </div>
+      </main>
 
       <Footer />
     </BrowserRouter>

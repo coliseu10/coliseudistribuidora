@@ -16,7 +16,7 @@ import { db } from "./firebase";
 
 export type ProductColor = {
   name: string; // "Branco", "Preto Fosco"
-  hex: string;  // "#ffffff"
+  hex: string; // "#ffffff"
 };
 
 export type ProductDoc = {
@@ -30,8 +30,15 @@ export type ProductDoc = {
   unit: "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
   packQty: number | null;
 
-  colors: ProductColor[]; // <<< NOVO (múltiplas cores)
+  colors: ProductColor[]; // múltiplas cores
 
+  // NOVO: preço em centavos (ex: 5990 = R$ 59,90)
+  priceCents: number | null;
+
+  // NOVO: múltiplas imagens (primeira é a principal)
+  imageUrls: string[];
+
+  // compat/legado (continua existindo)
   imageUrl: string;
   imagePath: string;
 
@@ -59,6 +66,45 @@ function toProductColor(x: unknown): ProductColor | null {
   return { name, hex: normalizedHex };
 }
 
+function toPriceCents(data: DocumentData): number | null {
+  // novo formato
+  if (typeof data?.priceCents === "number" && Number.isFinite(data.priceCents)) {
+    const v = Math.trunc(data.priceCents);
+    return v >= 0 ? v : null;
+  }
+
+  // migração suave: se existir "price" antigo como number em reais
+  if (typeof data?.price === "number" && Number.isFinite(data.price)) {
+    const cents = Math.round(data.price * 100);
+    return cents >= 0 ? cents : null;
+  }
+
+  return null;
+}
+
+function coerceImageUrls(data: DocumentData): { imageUrls: string[]; imageUrl: string } {
+  const urls: string[] = [];
+
+  // novo formato
+  if (Array.isArray(data?.imageUrls)) {
+    for (const it of data.imageUrls) {
+      if (typeof it === "string") {
+        const u = it.trim();
+        if (u) urls.push(u);
+      }
+    }
+  }
+
+  // legado: imageUrl único
+  const legacyImageUrl = typeof data?.imageUrl === "string" ? data.imageUrl.trim() : "";
+  if (urls.length === 0 && legacyImageUrl) urls.push(legacyImageUrl);
+
+  // garante que imageUrl principal fique alinhado com o primeiro do array
+  const main = urls[0] ?? legacyImageUrl ?? "";
+
+  return { imageUrls: urls, imageUrl: main };
+}
+
 function coerceProductDoc(data: DocumentData): ProductDoc {
   const colors: ProductColor[] = [];
 
@@ -71,10 +117,16 @@ function coerceProductDoc(data: DocumentData): ProductDoc {
   }
 
   // opcional: migração suave se existir "color" antigo como string
-  if (colors.length === 0 && typeof (data as Record<string, unknown>)?.color === "string") {
+  if (
+    colors.length === 0 &&
+    typeof (data as Record<string, unknown>)?.color === "string"
+  ) {
     const legacy = String((data as Record<string, unknown>).color).trim();
     if (legacy) colors.push({ name: legacy, hex: "#000000" });
   }
+
+  const { imageUrls, imageUrl } = coerceImageUrls(data);
+  const priceCents = toPriceCents(data);
 
   return {
     name: typeof data?.name === "string" ? data.name : "",
@@ -96,7 +148,11 @@ function coerceProductDoc(data: DocumentData): ProductDoc {
 
     colors,
 
-    imageUrl: typeof data?.imageUrl === "string" ? data.imageUrl : "",
+    priceCents,
+
+    imageUrls,
+    imageUrl,
+
     imagePath: typeof data?.imagePath === "string" ? data.imagePath : "",
 
     createdAt: (data?.createdAt ?? null) as Timestamp | null,
@@ -115,8 +171,20 @@ export async function listProducts(): Promise<Product[]> {
 }
 
 export async function createProduct(input: ProductInput): Promise<void> {
+  // garante compat: se imageUrls vier vazio mas imageUrl vier preenchido (ou vice-versa)
+  const normalizedImageUrls =
+    Array.isArray(input.imageUrls) && input.imageUrls.length
+      ? input.imageUrls
+      : input.imageUrl
+      ? [input.imageUrl]
+      : [];
+
+  const mainImageUrl = normalizedImageUrls[0] ?? input.imageUrl ?? "";
+
   await addDoc(collection(db, "products"), {
     ...input,
+    imageUrls: normalizedImageUrls,
+    imageUrl: mainImageUrl,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -126,8 +194,27 @@ export async function updateProduct(
   id: string,
   patch: Partial<ProductInput>
 ): Promise<void> {
+  // se vier imageUrls no patch, mantém imageUrl principal alinhado
+  const nextPatch: Record<string, unknown> = { ...patch };
+
+  if ("imageUrls" in patch) {
+    const arr =
+      Array.isArray(patch.imageUrls) && patch.imageUrls.length
+        ? patch.imageUrls
+        : [];
+
+    // se alguém mandar imageUrl sem mandar imageUrls, também ok (não força)
+    const mainFromArray = arr[0] ?? "";
+
+    nextPatch.imageUrls = arr;
+
+    if (mainFromArray) {
+      nextPatch.imageUrl = mainFromArray;
+    }
+  }
+
   await updateDoc(doc(db, "products", id), {
-    ...patch,
+    ...nextPatch,
     updatedAt: serverTimestamp(),
   });
 }

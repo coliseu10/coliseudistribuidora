@@ -34,10 +34,14 @@ type FormState = {
   // quantidade (string no form pra permitir vazio)
   packQty: string;
 
+  // preço (string formatada no input: "59,90")
+  price: string;
+
   // cores múltiplas
   colors: ProductColor[];
 
-  imageUrl: string;
+  // múltiplas imagens (primeira é a principal)
+  imageUrls: string[];
 };
 
 const emptyForm: FormState = {
@@ -48,8 +52,9 @@ const emptyForm: FormState = {
   description: "",
   unit: "Unidade",
   packQty: "",
+  price: "",
   colors: [],
-  imageUrl: "",
+  imageUrls: [],
 };
 
 function needsPackQty(unit: UnitOption) {
@@ -92,6 +97,50 @@ function formatPack(unit: UnitOption, packQty: number | null): string | null {
   return unit;
 }
 
+// ---------- helpers: somente números ----------
+function digitsOnly(s: string) {
+  return s.replace(/\D/g, "");
+}
+
+// ---------- helpers: moeda BRL (input) ----------
+function formatBRLInputFromDigits(digits: string) {
+  // digits = centavos, ex: "5990" => 59,90
+  if (!digits) return "";
+  const cents = Number(digits);
+  if (!Number.isFinite(cents)) return "";
+  return (cents / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function parseBRLToCents(input: string): number | null {
+  const d = digitsOnly(input);
+  if (!d) return null;
+  const cents = Number(d);
+  if (!Number.isFinite(cents)) return null;
+  if (cents <= 0) return null; // se quiser permitir 0, troque pra < 0
+  return Math.trunc(cents);
+}
+
+function formatCentsToBRLInput(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatCentsToBRLCurrency(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+function uniq(arr: string[]) {
+  return Array.from(new Set(arr));
+}
+
 export default function ProdutosPanel({ intent, clearIntent }: Props) {
   const [cats, setCats] = useState<Category[]>([]);
   const [items, setItems] = useState<Product[]>([]);
@@ -105,9 +154,15 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
   const [preview, setPreview] = useState<string>("");
 
+  // input (rascunho) pra adicionar imagem
+  const [imageDraft, setImageDraft] = useState("");
+
   // inputs para adicionar cor
   const [newColorName, setNewColorName] = useState("");
   const [newColorHex, setNewColorHex] = useState("#000000");
+
+  // preço: só mostra erro depois que o usuário mexer (ou tentar salvar)
+  const [priceTouched, setPriceTouched] = useState(false);
 
   async function reload() {
     setLoading(true);
@@ -169,18 +224,29 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       category: first,
       unit: "Unidade",
       packQty: "",
+      price: "",
       colors: [],
+      imageUrls: [],
       active: true,
     };
 
     setForm(next);
-    setPreview(next.imageUrl);
+    setPreview("");
+    setImageDraft("");
     setNewColorName("");
     setNewColorHex("#000000");
+    setPriceTouched(false);
     setOpen(true);
   }
 
   function openEdit(p: Product) {
+    const rawUrls =
+      p.imageUrls?.length ? p.imageUrls : p.imageUrl ? [p.imageUrl] : [];
+
+    const imageUrls = uniq(
+      rawUrls.map((u) => normalizeImageUrl(u)).filter(Boolean)
+    );
+
     const next: FormState = {
       id: p.id,
       name: p.name,
@@ -190,14 +256,17 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       description: p.description,
       unit: p.unit,
       packQty: p.packQty != null ? String(p.packQty) : "",
+      price: p.priceCents != null ? formatCentsToBRLInput(p.priceCents) : "",
       colors: Array.isArray(p.colors) ? p.colors : [],
-      imageUrl: p.imageUrl,
+      imageUrls,
     };
 
     setForm(next);
-    setPreview(p.imageUrl || "");
+    setPreview(imageUrls[0] || "");
+    setImageDraft("");
     setNewColorName("");
     setNewColorHex("#000000");
+    setPriceTouched(false);
     setOpen(true);
   }
 
@@ -228,6 +297,45 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     }));
   }
 
+  function addImageUrl() {
+    const normalized = normalizeImageUrl(imageDraft);
+    if (!normalized) {
+      alert("Cole uma URL válida de imagem.");
+      return;
+    }
+
+    setForm((s) => {
+      const next = uniq([...(s.imageUrls || []), normalized]);
+      return { ...s, imageUrls: next };
+    });
+
+    setPreview(normalized);
+    setImageDraft("");
+  }
+
+  function removeImageUrl(url: string) {
+    setForm((s) => {
+      const next = (s.imageUrls || []).filter((u) => u !== url);
+      if (preview === url) setPreview(next[0] || "");
+      return { ...s, imageUrls: next };
+    });
+  }
+
+  function setMainImage(url: string) {
+    setForm((s) => {
+      const rest = (s.imageUrls || []).filter((u) => u !== url);
+      const next = [url, ...rest];
+      return { ...s, imageUrls: next };
+    });
+    setPreview(url);
+  }
+
+  function clearImages() {
+    setForm((s) => ({ ...s, imageUrls: [] }));
+    setPreview("");
+    setImageDraft("");
+  }
+
   async function save() {
     setSaving(true);
     try {
@@ -235,7 +343,15 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       const category = form.category.trim();
       if (!name || !category) return;
 
-      const imageUrl = normalizeImageUrl(form.imageUrl);
+      // imagens normalizadas e únicas
+      const imageUrls = uniq(
+        (form.imageUrls || [])
+          .map((u) => normalizeImageUrl(u))
+          .filter(Boolean)
+      );
+
+      // compat: imageUrl principal = primeira
+      const imageUrl = imageUrls[0] || "";
 
       const mustQty = needsPackQty(form.unit);
       const qty = parsePositiveInt(form.packQty);
@@ -251,6 +367,14 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         .map((c) => ({ name: normalizeColorName(c.name), hex: c.hex }))
         .filter((c) => c.name && isHexColor(c.hex));
 
+      // preço -> centavos
+      const priceCents = parseBRLToCents(form.price);
+      if (priceCents == null) {
+        setPriceTouched(true);
+        alert("Preencha um valor válido (ex: 59,90).");
+        return;
+      }
+
       if (form.id) {
         await updateProduct(form.id, {
           name,
@@ -261,7 +385,14 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
           unit: form.unit,
           packQty: packQtyToSave,
           colors: colorsToSave,
+
+          // novo
+          priceCents,
+          imageUrls,
+
+          // compat
           imageUrl,
+
           imagePath: "",
         });
 
@@ -279,7 +410,14 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         unit: form.unit,
         packQty: packQtyToSave,
         colors: colorsToSave,
+
+        // novo
+        priceCents,
+        imageUrls,
+
+        // compat
         imageUrl,
+
         imagePath: "",
       });
 
@@ -296,14 +434,11 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     await reload();
   }
 
-  function setImageUrl(value: string) {
-    const normalized = normalizeImageUrl(value);
-    setForm((s) => ({ ...s, imageUrl: normalized }));
-    setPreview(normalized);
-  }
-
   const mustQty = needsPackQty(form.unit);
   const qtyOk = !mustQty || parsePositiveInt(form.packQty) != null;
+
+  const priceOk = parseBRLToCents(form.price) != null;
+  const showPriceError = priceTouched && !priceOk;
 
   return (
     <div className="space-y-4">
@@ -346,6 +481,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
             {filtered.map((p) => {
               const packInfo = formatPack(p.unit, p.packQty);
 
+              const cents = p.priceCents;
+              const firstImage = p.imageUrls?.[0] || p.imageUrl;
+
               return (
                 <div
                   key={p.id}
@@ -353,9 +491,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                 >
                   <div className="flex items-start gap-3">
                     <div className="h-12 w-12 rounded-lg bg-zinc-100 overflow-hidden flex items-center justify-center shrink-0">
-                      {p.imageUrl ? (
+                      {firstImage ? (
                         <img
-                          src={p.imageUrl}
+                          src={firstImage}
                           alt={p.name}
                           className="h-full w-full object-cover"
                         />
@@ -382,6 +520,12 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                         {packInfo ? (
                           <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
                             {packInfo}
+                          </span>
+                        ) : null}
+
+                        {cents != null ? (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
+                            {formatCentsToBRLCurrency(cents)}
                           </span>
                         ) : null}
 
@@ -456,7 +600,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               {/* coluna imagem */}
               <div>
-                <div className="text-sm font-medium">Imagem (Drive ou Cloudinary)</div>
+                <div className="text-sm font-medium">
+                  Imagens (Drive ou Cloudinary)
+                </div>
 
                 <div className="mt-2 aspect-video rounded-xl border bg-zinc-50 overflow-hidden flex items-center justify-center">
                   {preview ? (
@@ -468,31 +614,106 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                     />
                   ) : (
                     <div className="text-sm text-zinc-500">
-                      Cole uma URL válida abaixo
+                      Adicione uma ou mais URLs abaixo
                     </div>
                   )}
                 </div>
 
-                <label className="mt-3 block text-sm font-medium">URL da imagem</label>
-                <input
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                  value={form.imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="Cole o link do Google Drive ou Cloudinary"
-                />
+                <label className="mt-3 block text-sm font-medium">
+                  URL da imagem (você pode adicionar várias)
+                </label>
+
+                <div className="mt-1 flex gap-2">
+                  <input
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    value={imageDraft}
+                    onChange={(e) => setImageDraft(e.target.value)}
+                    placeholder="Cole o link do Google Drive ou Cloudinary"
+                  />
+                  <button
+                    type="button"
+                    onClick={addImageUrl}
+                    disabled={!imageDraft.trim()}
+                    className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+                    title="Adicionar imagem"
+                  >
+                    Adicionar
+                  </button>
+                </div>
 
                 <div className="mt-2 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setImageUrl("")}
+                    onClick={clearImages}
                     className="rounded-lg border px-3 py-2 text-sm"
                   >
-                    Limpar imagem
+                    Limpar todas
                   </button>
                 </div>
 
+                {form.imageUrls.length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-xs text-zinc-600 mb-2">
+                      {form.imageUrls.length} imagem(ns). A primeira é a{" "}
+                      <b>principal</b>.
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-2">
+                      {form.imageUrls.map((url, idx) => (
+                        <div
+                          key={url}
+                          className="rounded-lg border overflow-hidden bg-white"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setPreview(url)}
+                            className="block w-full aspect-square bg-zinc-50"
+                            title="Ver no preview"
+                          >
+                            <img
+                              src={url}
+                              alt={`img-${idx + 1}`}
+                              className="h-full w-full object-cover"
+                              onError={() => {
+                                // se quebrar, remove automaticamente
+                                const bad = url;
+                                setTimeout(() => removeImageUrl(bad), 0);
+                              }}
+                            />
+                          </button>
+
+                          <div className="p-1 flex items-center justify-between gap-1">
+                            <button
+                              type="button"
+                              className={`text-[11px] rounded px-1.5 py-0.5 border ${
+                                idx === 0
+                                  ? "bg-black text-white border-black"
+                                  : "bg-white"
+                              }`}
+                              onClick={() => setMainImage(url)}
+                              title="Definir como principal"
+                            >
+                              {idx === 0 ? "Principal" : "Tornar principal"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => removeImageUrl(url)}
+                              className="text-[11px] rounded px-1.5 py-0.5 border text-red-600"
+                              title="Remover"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="mt-2 text-xs text-zinc-500">
-                  Dica: se colar link do Drive, o sistema converte automaticamente para link direto.
+                  Dica: se colar link do Drive, o sistema converte automaticamente
+                  para link direto.
                 </div>
               </div>
 
@@ -503,7 +724,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                   <input
                     className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
                     value={form.name}
-                    onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((s) => ({ ...s, name: e.target.value }))
+                    }
                     placeholder="Ex: Spot Quadrado de Embutir..."
                   />
                 </div>
@@ -514,7 +737,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                     <select
                       className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white"
                       value={form.category}
-                      onChange={(e) => setForm((s) => ({ ...s, category: e.target.value }))}
+                      onChange={(e) =>
+                        setForm((s) => ({ ...s, category: e.target.value }))
+                      }
                     >
                       {cats.map((c) => (
                         <option key={c.id} value={c.name}>
@@ -547,6 +772,31 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                   </div>
                 </div>
 
+                {/* VALOR */}
+                <div>
+                  <label className="block text-sm font-medium">Valor (R$)</label>
+                  <input
+                    className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                      showPriceError ? "border-red-500" : ""
+                    }`}
+                    value={form.price}
+                    onChange={(e) => {
+                      setPriceTouched(true);
+                      const d = digitsOnly(e.target.value);
+                      const formatted = formatBRLInputFromDigits(d);
+                      setForm((s) => ({ ...s, price: formatted }));
+                    }}
+                    onBlur={() => setPriceTouched(true)}
+                    placeholder="Ex: 59,90"
+                    inputMode="numeric"
+                  />
+                  {showPriceError && (
+                    <div className="mt-1 text-xs text-red-600">
+                      Informe um valor válido (ex: 59,90).
+                    </div>
+                  )}
+                </div>
+
                 {mustQty && (
                   <div>
                     <label className="block text-sm font-medium">
@@ -557,7 +807,12 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                         qtyOk ? "" : "border-red-500"
                       }`}
                       value={form.packQty}
-                      onChange={(e) => setForm((s) => ({ ...s, packQty: e.target.value }))}
+                      onChange={(e) =>
+                        setForm((s) => ({
+                          ...s,
+                          packQty: digitsOnly(e.target.value), // só número
+                        }))
+                      }
                       placeholder="Ex: 10"
                       inputMode="numeric"
                     />
@@ -571,7 +826,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
                 {/* CORES */}
                 <div>
-                  <label className="block text-sm font-medium">Cores do produto</label>
+                  <label className="block text-sm font-medium">
+                    Cores do produto
+                  </label>
 
                   <div className="mt-1 flex flex-col sm:flex-row gap-2">
                     <input
@@ -628,11 +885,15 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium">Código/Referência (SKU)</label>
+                  <label className="block text-sm font-medium">
+                    Código/Referência (SKU)
+                  </label>
                   <input
                     className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
                     value={form.sku}
-                    onChange={(e) => setForm((s) => ({ ...s, sku: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((s) => ({ ...s, sku: e.target.value }))
+                    }
                     placeholder="Ex: 4500"
                   />
                 </div>
@@ -642,7 +903,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                   <textarea
                     className="mt-1 w-full rounded-lg border px-3 py-2 text-sm min-h-[96px]"
                     value={form.description}
-                    onChange={(e) => setForm((s) => ({ ...s, description: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((s) => ({ ...s, description: e.target.value }))
+                    }
                     placeholder="Ex: Não acompanha lâmpadas..."
                   />
                 </div>
@@ -651,7 +914,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                   <input
                     type="checkbox"
                     checked={form.active}
-                    onChange={(e) => setForm((s) => ({ ...s, active: e.target.checked }))}
+                    onChange={(e) =>
+                      setForm((s) => ({ ...s, active: e.target.checked }))
+                    }
                   />
                   Ativo
                 </label>
@@ -668,7 +933,13 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
               </button>
               <button
                 onClick={save}
-                disabled={saving || !form.name.trim() || !form.category.trim() || !qtyOk}
+                disabled={
+                  saving ||
+                  !form.name.trim() ||
+                  !form.category.trim() ||
+                  !qtyOk ||
+                  !priceOk
+                }
                 className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
               >
                 {saving ? "Salvando..." : "Salvar"}

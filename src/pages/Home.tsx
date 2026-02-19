@@ -3,36 +3,32 @@ import { listProducts } from "../lib/products";
 import type { Product } from "../lib/products";
 
 type UnitOption = "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
-type ProductColor = { name: string; hex: string };
 
-// Ajuste aqui conforme o seu model real (sem any)
-type CatalogProduct = Product & {
-  active: boolean;
-  category: string;
-  sku?: string | null;
-  unit?: UnitOption | null;
-  packQty?: number | null;
-  imageUrl?: string | null;
-  description?: string | null;
-  colors?: ProductColor[] | null;
-
-  // se existir no seu model, ótimo; se não, cai em "Consulte"
-  price?: number | string | null;
-};
-
-function formatPack(unit?: UnitOption | null, packQty?: number | null) {
-  const u = unit ?? "";
-  if (!u) return "—";
+function formatPack(
+  unit: UnitOption | null | undefined,
+  packQty: number | null | undefined,
+) {
+  const u = (unit ?? "") as UnitOption;
+  if (!u) return "";
   if (u === "Unidade") return "Unidade";
   return packQty && packQty > 0 ? `${u} • ${packQty} peças` : u;
 }
 
-function formatPrice(v?: number | string | null) {
-  if (typeof v === "number") {
-    return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+function formatPriceCents(priceCents: number | null | undefined) {
+  if (typeof priceCents === "number" && Number.isFinite(priceCents)) {
+    return (priceCents / 100).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
   }
-  if (typeof v === "string" && v.trim()) return v.trim();
-  return "Consulte";
+  return "";
+}
+
+function getProductImages(p: Product): string[] {
+  const urls = Array.isArray(p.imageUrls) ? p.imageUrls.filter(Boolean) : [];
+  if (urls.length > 0) return urls;
+  if (p.imageUrl) return [p.imageUrl];
+  return [];
 }
 
 const CONTACTS = {
@@ -48,21 +44,22 @@ const CONTACTS = {
   site: "www.distribuidoracoliseu.com.br",
 };
 
-export default function Home() {
-  const [items, setItems] = useState<CatalogProduct[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [q, setQ] = useState("");
+type LightboxState = {
+  urls: string[];
+  index: number;
+  alt: string;
+};
 
-  const [lightbox, setLightbox] = useState<{
-    url: string;
-    alt: string;
-  } | null>(null);
+export default function Home() {
+  const [items, setItems] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
-        const data = (await listProducts()) as CatalogProduct[];
+        const data = await listProducts();
         setItems(data.filter((p) => p.active));
       } finally {
         setLoading(false);
@@ -70,20 +67,10 @@ export default function Home() {
     })();
   }, []);
 
-  const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    if (!s) return items;
-
-    return items.filter((p) => {
-      const name = (p.name ?? "").toLowerCase();
-      const cat = (p.category ?? "").toLowerCase();
-      const sku = (p.sku ?? "").toLowerCase();
-      return name.includes(s) || cat.includes(s) || sku.includes(s);
-    });
-  }, [items, q]);
+  const filtered = useMemo(() => items, [items]);
 
   const groups = useMemo(() => {
-    const map = new Map<string, CatalogProduct[]>();
+    const map = new Map<string, Product[]>();
     for (const p of filtered) {
       const cat = (p.category ?? "").trim() || "Sem categoria";
       const prev = map.get(cat) ?? [];
@@ -100,14 +87,49 @@ export default function Home() {
         String(a.name ?? "").localeCompare(String(b.name ?? ""), "pt-BR"),
       );
     }
+
     return arr;
   }, [filtered]);
 
+  function openLightbox(p: Product) {
+    const urls = getProductImages(p);
+    if (!urls.length) return;
+
+    setLightbox({
+      urls,
+      index: 0,
+      alt: p.name || "Imagem do produto",
+    });
+  }
+
+  function closeLightbox() {
+    setLightbox(null);
+  }
+
+  function nextImage() {
+    setLightbox((s) => {
+      if (!s) return s;
+      const next = Math.min(s.index + 1, s.urls.length - 1);
+      return { ...s, index: next };
+    });
+  }
+
+  function prevImage() {
+    setLightbox((s) => {
+      if (!s) return s;
+      const prev = Math.max(s.index - 1, 0);
+      return { ...s, index: prev };
+    });
+  }
+
+  // ✅ Ajuste rápido do tamanho do thumb aqui:
+  const THUMB_SIZE = "h-24 w-24"; // era 16x16. Pode trocar pra "h-28 w-28" se quiser maior ainda.
+
   return (
-    <div className="min-h-screen bg-zinc-100">
+    <div className="min-h-screen bg-white">
       <div className="mx-auto max-w-7xl px-4 py-6">
-        {/* TOPO estilo PDF */}
-        <div className="rounded-2xl border bg-white p-6">
+        {/* TOPO + BANNER (sem “caixa”) */}
+        <div className="bg-white">
           <div className="text-center leading-tight">
             <div className="text-lg font-extrabold tracking-wide">
               CATÁLOGO DE
@@ -141,9 +163,11 @@ export default function Home() {
                 ))}
               </div>
 
-              <div className="mt-4 space-y-1 text-sm text-zinc-700">
+              <div className="mt-4 space-y-1 text-sm">
                 {CONTACTS.emails.map((e) => (
-                  <div key={e}>{e}</div>
+                  <div key={e} className="font-bold text-zinc-900">
+                    {e}
+                  </div>
                 ))}
               </div>
 
@@ -152,7 +176,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* ENTREGA + BUSCA */}
+            {/* ENTREGA + LOGO */}
             <div className="text-center md:text-right">
               <div className="text-base font-black text-blue-900">
                 ENTREGA PARA TODO TERRITÓRIO
@@ -170,19 +194,25 @@ export default function Home() {
               </div>
 
               <div className="mt-6 flex justify-center md:justify-end">
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Buscar por nome, categoria ou código..."
-                  className="w-full md:w-96 rounded-lg border px-3 py-2 text-sm outline-none focus:ring"
+                <img
+                  src="/logo.jpg"
+                  alt="Distribuidora Coliseu"
+                  className="h-24 w-auto object-contain"
                 />
               </div>
             </div>
           </div>
+
+          {/* BANNER */}
+          <div
+            className="mt-6 h-[480px] w-full rounded-xl bg-cover bg-center"
+            style={{ backgroundImage: "url(/coliseu.png)" }}
+            aria-label="Banner Distribuidora Coliseu"
+          />
         </div>
 
-        {/* LISTAGEM */}
-        <div className="mt-6">
+        {/* LISTAGEM (sem caixas, sem espaçamento feio) */}
+        <div className="mt-8">
           {loading ? (
             <div className="text-sm text-zinc-600">Carregando...</div>
           ) : groups.length === 0 ? (
@@ -190,20 +220,16 @@ export default function Home() {
               Nenhum produto encontrado.
             </div>
           ) : (
-            <div className="space-y-8">
+            <div className="space-y-6">
               {groups.map(([cat, list]) => (
-                <section key={cat} className="rounded-2xl border bg-white p-4">
-                  <div className="flex items-center justify-center gap-3">
-                    <span className="h-2 w-2 rounded-full bg-black" />
-                    <h2 className="text-lg sm:text-xl font-black tracking-wide text-orange-600 uppercase">
-                      {cat}
-                    </h2>
-                    <span className="h-2 w-2 rounded-full bg-black" />
-                  </div>
+                <section key={cat} className="bg-white">
+                  {/* título da categoria (sem “borda/bolinha/divisória”) */}
+                  <h2 className="text-lg sm:text-xl font-black tracking-wide text-orange-600 uppercase text-center">
+                    {cat}
+                  </h2>
 
-                  <div className="mt-4 overflow-x-auto">
+                  <div className="mt-3 overflow-x-auto">
                     <table className="w-full min-w-[860px] table-fixed border border-zinc-900 text-sm">
-                      {/* Colunas padronizadas */}
                       <colgroup>
                         <col style={{ width: "48%" }} />
                         <col style={{ width: "18%" }} />
@@ -230,36 +256,34 @@ export default function Home() {
 
                       <tbody>
                         {list.map((p) => {
-                          const colors = Array.isArray(p.colors) ? p.colors : [];
+                          const colors = Array.isArray(p.colors)
+                            ? p.colors
+                            : [];
+                          const urls = getProductImages(p);
+                          const firstImage = urls[0] ?? "";
 
                           return (
                             <tr key={p.id} className="align-top">
-                              {/* FOTO + NOME + COD + DESCRIÇÃO */}
                               <td className="border border-zinc-900 px-3 py-3">
-                                <div className="flex items-start gap-3">
+                                <div className="flex items-start gap-4">
                                   <div className="shrink-0">
-                                    {p.imageUrl ? (
+                                    {firstImage ? (
                                       <button
                                         type="button"
-                                        onClick={() =>
-                                          setLightbox({
-                                            url: p.imageUrl!,
-                                            alt: p.name,
-                                          })
-                                        }
-                                        className="h-16 w-16 rounded bg-zinc-100 overflow-hidden border hover:opacity-90"
-                                        title="Ver imagem"
+                                        onClick={() => openLightbox(p)}
+                                        className={`${THUMB_SIZE} rounded bg-white overflow-hidden border hover:opacity-90`}
+                                        title="Abrir imagens"
                                       >
                                         <img
-                                          src={p.imageUrl}
+                                          src={firstImage}
                                           alt={p.name}
-                                          className="h-full w-full object-cover"
+                                          className="h-full w-full object-contain"
                                         />
                                       </button>
                                     ) : (
-                                      <div className="h-16 w-16 rounded bg-zinc-100 border flex items-center justify-center text-xs text-zinc-500">
-                                        sem foto
-                                      </div>
+                                      <div
+                                        className={`${THUMB_SIZE} rounded bg-white border`}
+                                      />
                                     )}
                                   </div>
 
@@ -268,66 +292,50 @@ export default function Home() {
                                       {p.name}
                                     </div>
 
-                                    {p.sku ? (
+                                    {p.sku && (
                                       <div className="text-xs text-zinc-600">
                                         Cód: {p.sku}
                                       </div>
-                                    ) : null}
+                                    )}
 
-                                    {p.description ? (
-                                      <div
-                                        className="mt-1 text-xs text-zinc-600"
-                                        style={{
-                                          display: "-webkit-box",
-                                          WebkitLineClamp: 2,
-                                          WebkitBoxOrient: "vertical",
-                                          overflow: "hidden",
-                                        }}
-                                      >
+                                    {p.description && (
+                                      <div className="mt-1 text-xs text-zinc-600 line-clamp-3">
                                         {p.description}
                                       </div>
-                                    ) : null}
+                                    )}
                                   </div>
                                 </div>
                               </td>
 
-                              {/* COR */}
                               <td className="border border-zinc-900 px-3 py-3">
                                 {colors.length ? (
-                                  <div className="space-y-2">
-                                    {colors.map((c) => (
-                                      <div
-                                        key={`${p.id}-${c.name}`}
-                                        className="flex items-center gap-2"
-                                      >
-                                        <span
-                                          className="h-3 w-3 rounded-full ring-1 ring-black/20"
-                                          style={{ backgroundColor: c.hex }}
-                                          aria-hidden="true"
-                                        />
-                                        <span className="font-semibold">
-                                          {c.name}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
+                                  colors.map((c) => (
+                                    <div
+                                      key={`${p.id}-${c.name}`}
+                                      className="flex items-center gap-2"
+                                    >
+                                      <span
+                                        className="h-3 w-3 rounded-full ring-1 ring-black/20"
+                                        style={{ backgroundColor: c.hex }}
+                                      />
+                                      <span className="font-semibold">
+                                        {c.name}
+                                      </span>
+                                    </div>
+                                  ))
                                 ) : (
-                                  <span className="text-zinc-500">—</span>
+                                  <div className="text-xs text-zinc-500">
+                                    &nbsp;
+                                  </div>
                                 )}
                               </td>
 
-                              {/* QTD/CX */}
-                              <td className="border border-zinc-900 px-3 py-3 text-center">
-                                <div className="font-semibold">
-                                  {formatPack(p.unit ?? "", p.packQty ?? null)}
-                                </div>
+                              <td className="border border-zinc-900 px-3 py-3 text-center font-semibold">
+                                {formatPack(p.unit ?? "", p.packQty ?? null)}
                               </td>
 
-                              {/* PREÇO */}
-                              <td className="border border-zinc-900 px-3 py-3 text-center">
-                                <span className="font-semibold">
-                                  {formatPrice(p.price ?? null)}
-                                </span>
+                              <td className="border border-zinc-900 px-3 py-3 text-center font-semibold">
+                                {formatPriceCents(p.priceCents ?? null)}
                               </td>
                             </tr>
                           );
@@ -343,12 +351,10 @@ export default function Home() {
       </div>
 
       {/* LIGHTBOX */}
-      {lightbox ? (
+      {lightbox && (
         <div
           className="fixed inset-0 z-50 bg-black/60 p-4 flex items-center justify-center"
-          onClick={() => setLightbox(null)}
-          role="dialog"
-          aria-modal="true"
+          onClick={closeLightbox}
         >
           <div
             className="w-full max-w-3xl rounded-2xl bg-white overflow-hidden"
@@ -356,24 +362,47 @@ export default function Home() {
           >
             <div className="flex items-center justify-between border-b px-4 py-3">
               <div className="font-semibold">{lightbox.alt}</div>
-              <button
-                type="button"
-                onClick={() => setLightbox(null)}
-                className="rounded-lg border px-3 py-1.5 text-sm"
-              >
-                Fechar
-              </button>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={prevImage}
+                  disabled={lightbox.index === 0}
+                  className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50"
+                >
+                  ←
+                </button>
+                <button
+                  onClick={nextImage}
+                  disabled={lightbox.index >= lightbox.urls.length - 1}
+                  className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50"
+                >
+                  →
+                </button>
+                <button
+                  onClick={closeLightbox}
+                  className="rounded-lg border px-3 py-1.5 text-sm"
+                >
+                  Fechar
+                </button>
+              </div>
             </div>
-            <div className="p-4">
+
+            <div className="p-4 space-y-3">
               <img
-                src={lightbox.url}
+                src={lightbox.urls[lightbox.index]}
                 alt={lightbox.alt}
-                className="w-full max-h-[70vh] object-contain rounded-lg bg-zinc-50"
+                className="w-full max-h-[70vh] object-contain rounded-lg bg-white"
               />
+
+              {lightbox.urls.length > 1 && (
+                <div className="text-center text-xs text-zinc-600">
+                  {lightbox.index + 1} / {lightbox.urls.length}
+                </div>
+              )}
             </div>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
