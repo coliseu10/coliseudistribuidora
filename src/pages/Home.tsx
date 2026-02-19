@@ -6,7 +6,7 @@ type UnitOption = "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
 
 function formatPack(
   unit: UnitOption | null | undefined,
-  packQty: number | null | undefined,
+  packQty: number | null | undefined
 ) {
   const u = (unit ?? "") as UnitOption;
   if (!u) return "";
@@ -79,12 +79,12 @@ export default function Home() {
     }
 
     const arr = Array.from(map.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0], "pt-BR"),
+      a[0].localeCompare(b[0], "pt-BR")
     );
 
     for (const [, list] of arr) {
       list.sort((a, b) =>
-        String(a.name ?? "").localeCompare(String(b.name ?? ""), "pt-BR"),
+        String(a.name ?? "").localeCompare(String(b.name ?? ""), "pt-BR")
       );
     }
 
@@ -122,13 +122,10 @@ export default function Home() {
     });
   }
 
-  // ✅ Ajuste rápido do tamanho do thumb aqui:
-  const THUMB_SIZE = "h-24 w-24"; // era 16x16. Pode trocar pra "h-28 w-28" se quiser maior ainda.
-
   return (
     <div className="min-h-screen bg-white">
       <div className="mx-auto max-w-7xl px-4 py-6">
-        {/* TOPO + BANNER (sem “caixa”) */}
+        {/* TOPO + BANNER */}
         <div className="bg-white">
           <div className="text-center leading-tight">
             <div className="text-lg font-extrabold tracking-wide">
@@ -165,7 +162,7 @@ export default function Home() {
 
               <div className="mt-4 space-y-1 text-sm">
                 {CONTACTS.emails.map((e) => (
-                  <div key={e} className="font-bold text-zinc-900">
+                  <div key={e} className="font-bold text-zinc-900 break-all">
                     {e}
                   </div>
                 ))}
@@ -203,15 +200,15 @@ export default function Home() {
             </div>
           </div>
 
-          {/* BANNER */}
+          {/* BANNER responsivo */}
           <div
-            className="mt-6 h-[480px] w-full rounded-xl bg-cover bg-center"
+            className="mt-6 h-[220px] w-full rounded-xl bg-cover bg-center sm:h-[320px] md:h-[480px]"
             style={{ backgroundImage: "url(/coliseu.png)" }}
             aria-label="Banner Distribuidora Coliseu"
           />
         </div>
 
-        {/* LISTAGEM (sem caixas, sem espaçamento feio) */}
+        {/* LISTAGEM */}
         <div className="mt-8">
           {loading ? (
             <div className="text-sm text-zinc-600">Carregando...</div>
@@ -220,15 +217,118 @@ export default function Home() {
               Nenhum produto encontrado.
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-8">
               {groups.map(([cat, list]) => (
                 <section key={cat} className="bg-white">
-                  {/* título da categoria (sem “borda/bolinha/divisória”) */}
                   <h2 className="text-lg sm:text-xl font-black tracking-wide text-orange-600 uppercase text-center">
                     {cat}
                   </h2>
 
-                  <div className="mt-3 overflow-x-auto">
+                  {/* MOBILE: lista lisa (sem cards) */}
+                  <div className="mt-3 md:hidden">
+                    {list.map((p) => {
+                      const colors = Array.isArray(p.colors) ? p.colors : [];
+                      const urls = getProductImages(p);
+                      const firstImage = urls[0] ?? "";
+
+                      return (
+                        <div
+  key={p.id}
+  className="py-4 border-b border-black"
+>
+
+                          <div className="flex items-start gap-3">
+                            <div className="shrink-0">
+                              {firstImage ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openLightbox(p)}
+                                  className="h-20 w-20 rounded bg-white overflow-hidden border hover:opacity-90"
+                                  title="Abrir imagens"
+                                >
+                                  <img
+                                    src={firstImage}
+                                    alt={p.name}
+                                    className="h-full w-full object-contain"
+                                  />
+                                </button>
+                              ) : (
+                                <div className="h-20 w-20 rounded bg-white border" />
+                              )}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="font-semibold leading-snug">
+                                {p.name}
+                              </div>
+
+                              {p.sku && (
+                                <div className="text-xs text-zinc-600">
+                                  Cód: {p.sku}
+                                </div>
+                              )}
+
+                              {p.description && (
+                                <div className="mt-1 text-xs text-zinc-600 line-clamp-2">
+                                  {p.description}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
+                            <div className="min-w-0">
+                              <div className="text-xs font-black text-zinc-700">
+                                COR
+                              </div>
+
+                              {colors.length ? (
+                                <div className="mt-1 space-y-1">
+                                  {colors.map((c) => (
+                                    <div
+                                      key={`${p.id}-${c.name}`}
+                                      className="flex items-center gap-2 min-w-0"
+                                    >
+                                      <span
+                                        className="h-3 w-3 rounded-full ring-1 ring-black/20 shrink-0"
+                                        style={{ backgroundColor: c.hex }}
+                                      />
+                                      <span className="font-semibold truncate">
+                                        {c.name}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="mt-1 text-xs text-zinc-500">
+                                  &nbsp;
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="text-right">
+                              <div className="text-xs font-black text-zinc-700">
+                                QTD / CX
+                              </div>
+                              <div className="mt-1 font-semibold">
+                                {formatPack(p.unit ?? "", p.packQty ?? null)}
+                              </div>
+
+                              <div className="mt-3 text-xs font-black text-zinc-700">
+                                PREÇO
+                              </div>
+                              <div className="mt-1 font-semibold">
+                                {formatPriceCents(p.priceCents ?? null)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* DESKTOP: tabela */}
+                  <div className="mt-3 hidden md:block overflow-x-auto">
                     <table className="w-full min-w-[860px] table-fixed border border-zinc-900 text-sm">
                       <colgroup>
                         <col style={{ width: "48%" }} />
@@ -256,9 +356,7 @@ export default function Home() {
 
                       <tbody>
                         {list.map((p) => {
-                          const colors = Array.isArray(p.colors)
-                            ? p.colors
-                            : [];
+                          const colors = Array.isArray(p.colors) ? p.colors : [];
                           const urls = getProductImages(p);
                           const firstImage = urls[0] ?? "";
 
@@ -271,7 +369,7 @@ export default function Home() {
                                       <button
                                         type="button"
                                         onClick={() => openLightbox(p)}
-                                        className={`${THUMB_SIZE} rounded bg-white overflow-hidden border hover:opacity-90`}
+                                        className="h-24 w-24 rounded bg-white overflow-hidden border hover:opacity-90"
                                         title="Abrir imagens"
                                       >
                                         <img
@@ -281,9 +379,7 @@ export default function Home() {
                                         />
                                       </button>
                                     ) : (
-                                      <div
-                                        className={`${THUMB_SIZE} rounded bg-white border`}
-                                      />
+                                      <div className="h-24 w-24 rounded bg-white border" />
                                     )}
                                   </div>
 
