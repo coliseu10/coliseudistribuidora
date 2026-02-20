@@ -7,20 +7,12 @@ const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL ?? "")
   .trim()
   .toLowerCase();
 
-type LocationState = {
-  from?: {
-    pathname?: string;
-  };
-};
+type LocationState = { from?: { pathname?: string } };
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return "Falha no login";
-  }
+  return "Falha no login";
 }
 
 export default function Login() {
@@ -29,17 +21,19 @@ export default function Login() {
     state?: LocationState;
   };
 
-  // pega pathname salvo pelo AdminGate
   const from = location.state?.from?.pathname ?? "/admin";
 
   const [email, setEmail] = useState(ADMIN_EMAIL);
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loggedEmail, setLoggedEmail] = useState<string>("");
 
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
       const userEmail = (u?.email ?? "").trim().toLowerCase();
+      setLoggedEmail(userEmail);
+
       if (ADMIN_EMAIL && userEmail === ADMIN_EMAIL) {
         nav(from, { replace: true });
       }
@@ -60,12 +54,23 @@ export default function Login() {
     }
   }
 
+  const adminMismatch =
+    !!loggedEmail && !!ADMIN_EMAIL && loggedEmail !== ADMIN_EMAIL;
+
   return (
     <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-xl border bg-white p-5">
         <div className="text-xl font-semibold">Login Admin</div>
-        <div className="text-sm text-zinc-600 mt-1">
-          Entre para gerenciar produtos
+
+        {/* Diagnóstico visível */}
+        <div className="mt-2 rounded-lg border bg-zinc-50 p-2 text-xs text-zinc-700">
+          <div><b>Admin (env):</b> {ADMIN_EMAIL || "(vazio)"}</div>
+          <div><b>Logado como:</b> {loggedEmail || "(não logado)"}</div>
+          {adminMismatch && (
+            <div className="mt-1 text-red-600">
+              Você está autenticado, mas com um e-mail diferente do admin.
+            </div>
+          )}
         </div>
 
         <label className="mt-4 block text-sm font-medium">Email</label>
