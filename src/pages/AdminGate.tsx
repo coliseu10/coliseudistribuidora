@@ -3,7 +3,9 @@ import { onAuthStateChanged } from "firebase/auth";
 import { Navigate, useLocation } from "react-router-dom";
 import { auth } from "../lib/firebase";
 
-const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL as string;
+const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL ?? "")
+  .trim()
+  .toLowerCase();
 
 export default function AdminGate({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<"loading" | "ok" | "no">("loading");
@@ -11,10 +13,15 @@ export default function AdminGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
-      const ok = !!u?.email && u.email === ADMIN_EMAIL;
+      const userEmail = (u?.email ?? "").trim().toLowerCase();
+
+      // Se a env não existe no build do Netlify, nunca vai ser admin
+      const ok = !!ADMIN_EMAIL && userEmail === ADMIN_EMAIL;
+
       setStatus(ok ? "ok" : "no");
     });
-    return () => unsub();
+
+    return unsub;
   }, []);
 
   if (status === "loading") {
@@ -30,7 +37,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
       <Navigate
         to="/admin/login"
         replace
-        state={{ from: location.pathname }}
+        state={{ from: location }}   // salva a rota inteira, não só pathname
       />
     );
   }

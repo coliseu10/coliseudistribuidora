@@ -3,21 +3,44 @@ import { signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { auth } from "../lib/firebase";
 
-const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL as string;
+const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL ?? "")
+  .trim()
+  .toLowerCase();
+
+type LocationState = {
+  from?: {
+    pathname?: string;
+  };
+};
+
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return "Falha no login";
+  }
+}
 
 export default function Login() {
   const nav = useNavigate();
-  const location = useLocation() as any;
-  const from = location.state?.from ?? "/admin";
+  const location = useLocation() as ReturnType<typeof useLocation> & {
+    state?: LocationState;
+  };
 
-  const [email, setEmail] = useState(ADMIN_EMAIL ?? "");
+  // pega pathname salvo pelo AdminGate
+  const from = location.state?.from?.pathname ?? "/admin";
+
+  const [email, setEmail] = useState(ADMIN_EMAIL);
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
-      if (u?.email && u.email === ADMIN_EMAIL) {
+      const userEmail = (u?.email ?? "").trim().toLowerCase();
+      if (ADMIN_EMAIL && userEmail === ADMIN_EMAIL) {
         nav(from, { replace: true });
       }
     });
@@ -30,8 +53,8 @@ export default function Login() {
       await signInWithEmailAndPassword(auth, email.trim(), password);
       setPassword("");
       nav(from, { replace: true });
-    } catch (e: any) {
-      setErr(e?.message ?? "Falha no login");
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e));
     } finally {
       setLoading(false);
     }
