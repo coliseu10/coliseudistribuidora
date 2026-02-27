@@ -145,7 +145,7 @@ export default function CategoriasPanel({
   return (
     <div className="space-y-4">
       <div className="rounded-xl border bg-white p-4">
-        <div className="text-sm font-medium">Cadastrar categoria</div>
+        <div className="text-sm font-medium text-blue-600">Cadastrar Categoria</div>
         <div className="mt-3 flex flex-col sm:flex-row gap-2">
           <input
             value={newName}
