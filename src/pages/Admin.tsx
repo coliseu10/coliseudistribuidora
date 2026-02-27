@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "../lib/firebase";
+import { Link } from "react-router-dom"; // ✅ NOVO
 
 import ProdutosPanel, { type ProductIntent } from "../admin/ProdutosPainel";
 import CategoriasPanel from "../admin/CategoriasiPanel";
@@ -35,6 +36,14 @@ export default function Admin() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {/* ✅ NOVO BOTÃO HOME */}
+            <Link
+              to="/"
+              className="rounded-lg border px-4 py-2 text-sm bg-white"
+            >
+              Home
+            </Link>
+
             <button
               onClick={() => setTab("categorias")}
               className={`rounded-lg border px-4 py-2 text-sm ${
