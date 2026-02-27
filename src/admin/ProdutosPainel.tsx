@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { listCategories, type Category } from "../lib/categories";
 import {
   createProduct,
@@ -31,16 +31,10 @@ type FormState = {
   description: string;
   unit: UnitOption;
 
-  // quantidade (string no form pra permitir vazio)
   packQty: string;
-
-  // preço (string formatada no input: "59,90")
   price: string;
 
-  // cores múltiplas
   colors: ProductColor[];
-
-  // múltiplas imagens (primeira é a principal)
   imageUrls: string[];
 };
 
@@ -57,17 +51,16 @@ const emptyForm: FormState = {
   imageUrls: [],
 };
 
+/* ===================== HELPERS (embalagem/validação) ===================== */
 function needsPackQty(unit: UnitOption) {
   return unit === "Kit" || unit === "Meia Caixa" || unit === "Caixa Fechada";
 }
-
 function packQtyLabel(unit: UnitOption) {
   if (unit === "Kit") return "Quantas peças vem no Kit?";
   if (unit === "Meia Caixa") return "Quantidade da Meia Caixa (peças)";
   if (unit === "Caixa Fechada") return "Quantidade da Caixa Fechada (peças)";
   return "Quantidade";
 }
-
 function parsePositiveInt(value: string): number | null {
   const v = value.trim();
   if (!v) return null;
@@ -77,19 +70,18 @@ function parsePositiveInt(value: string): number | null {
   return n;
 }
 
+/* ===================== HELPERS (cores) ===================== */
 function isHexColor(v: string) {
   return /^#[0-9a-fA-F]{6}$/.test(v);
 }
-
 function normalizeColorName(s: string) {
   return s.trim().replace(/\s+/g, " ");
 }
 
-// 1 cor fixa só pra destacar categoria
+/* ===================== HELPERS (UI) ===================== */
 function categoryBadgeClass(): string {
   return "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-violet-50 text-violet-700 ring-1 ring-violet-600/20";
 }
-
 function formatPack(unit: UnitOption, packQty: number | null): string | null {
   if (!unit) return null;
   if (unit === "Unidade") return "Unidade";
@@ -97,14 +89,11 @@ function formatPack(unit: UnitOption, packQty: number | null): string | null {
   return unit;
 }
 
-// ---------- helpers: somente números ----------
+/* ===================== HELPERS (moeda) ===================== */
 function digitsOnly(s: string) {
   return s.replace(/\D/g, "");
 }
-
-// ---------- helpers: moeda BRL (input) ----------
 function formatBRLInputFromDigits(digits: string) {
-  // digits = centavos, ex: "5990" => 59,90
   if (!digits) return "";
   const cents = Number(digits);
   if (!Number.isFinite(cents)) return "";
@@ -113,23 +102,20 @@ function formatBRLInputFromDigits(digits: string) {
     maximumFractionDigits: 2,
   });
 }
-
 function parseBRLToCents(input: string): number | null {
   const d = digitsOnly(input);
   if (!d) return null;
   const cents = Number(d);
   if (!Number.isFinite(cents)) return null;
-  if (cents <= 0) return null; // se quiser permitir 0, troque pra < 0
+  if (cents <= 0) return null;
   return Math.trunc(cents);
 }
-
 function formatCentsToBRLInput(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 }
-
 function formatCentsToBRLCurrency(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", {
     style: "currency",
@@ -137,33 +123,51 @@ function formatCentsToBRLCurrency(cents: number) {
   });
 }
 
+/* ===================== HELPERS (arrays) ===================== */
 function uniq(arr: string[]) {
   return Array.from(new Set(arr));
 }
 
 export default function ProdutosPanel({ intent, clearIntent }: Props) {
+  /* ===================== STATE (dados) ===================== */
   const [cats, setCats] = useState<Category[]>([]);
   const [items, setItems] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /* ===================== STATE (filtro) ===================== */
   const [q, setQ] = useState("");
 
+  /* ===================== STATE (modal/form) ===================== */
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
 
+  /* ===================== STATE (imagens) ===================== */
   const [preview, setPreview] = useState<string>("");
-
-  // input (rascunho) pra adicionar imagem
   const [imageDraft, setImageDraft] = useState("");
 
-  // inputs para adicionar cor
+  /* ===================== STATE (cores) ===================== */
   const [newColorName, setNewColorName] = useState("");
   const [newColorHex, setNewColorHex] = useState("#000000");
+  const [editingColorIndex, setEditingColorIndex] = useState<number | null>(
+    null
+  );
 
-  // preço: só mostra erro depois que o usuário mexer (ou tentar salvar)
+  /* ===================== STATE (validações) ===================== */
   const [priceTouched, setPriceTouched] = useState(false);
 
+  /* ===================== FOCUS (input cor) ===================== */
+  const colorNameRef = useRef<HTMLInputElement | null>(null);
+  function focusColorName(selectAll = false) {
+    setTimeout(() => {
+      const el = colorNameRef.current;
+      if (!el) return;
+      el.focus();
+      if (selectAll) el.select();
+    }, 0);
+  }
+
+  /* ===================== DATA LOAD ===================== */
   async function reload() {
     setLoading(true);
     try {
@@ -179,6 +183,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     reload();
   }, []);
 
+  /* ===================== INTENT ===================== */
   useEffect(() => {
     if (!intent) return;
     if (loading) return;
@@ -198,6 +203,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     }
   }, [intent, loading, items, cats, clearIntent]);
 
+  /* ===================== FILTER ===================== */
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return items;
@@ -217,6 +223,13 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
   const canCreate = cats.length > 0;
 
+  /* ===================== MODAL: open/close ===================== */
+  function resetColorDrafts() {
+    setNewColorName("");
+    setNewColorHex("#000000");
+    setEditingColorIndex(null);
+  }
+
   function openNew(categoryOverride?: string) {
     const first = categoryOverride ?? cats[0]?.name ?? "";
     const next: FormState = {
@@ -233,8 +246,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     setForm(next);
     setPreview("");
     setImageDraft("");
-    setNewColorName("");
-    setNewColorHex("#000000");
+    resetColorDrafts();
     setPriceTouched(false);
     setOpen(true);
   }
@@ -264,39 +276,80 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     setForm(next);
     setPreview(imageUrls[0] || "");
     setImageDraft("");
-    setNewColorName("");
-    setNewColorHex("#000000");
+    resetColorDrafts();
     setPriceTouched(false);
     setOpen(true);
   }
 
-  function addColor() {
+  /* ===================== CORES ===================== */
+  function startEditColor(idx: number) {
+    const c = form.colors[idx];
+    if (!c) return;
+    setEditingColorIndex(idx);
+    setNewColorName(c.name);
+    setNewColorHex(isHexColor(c.hex) ? c.hex : "#000000");
+    focusColorName(true);
+  }
+
+  function cancelEditColor() {
+    resetColorDrafts();
+    focusColorName();
+  }
+
+  function upsertColor() {
     const name = normalizeColorName(newColorName);
     const hex = isHexColor(newColorHex) ? newColorHex.toLowerCase() : "#000000";
     if (!name) return;
 
     setForm((s) => {
-      const exists = s.colors.some(
-        (c) => c.name.trim().toLowerCase() === name.toLowerCase()
-      );
-      if (exists) return s;
+      const colors = [...s.colors];
 
-      return {
-        ...s,
-        colors: [...s.colors, { name, hex }],
-      };
+      if (editingColorIndex == null) {
+        const exists = colors.some(
+          (c) => c.name.trim().toLowerCase() === name.toLowerCase()
+        );
+        if (exists) return s;
+        return { ...s, colors: [...colors, { name, hex }] };
+      }
+
+      if (editingColorIndex < 0 || editingColorIndex >= colors.length) return s;
+
+      const duplicateOther = colors.some((c, i) => {
+        if (i === editingColorIndex) return false;
+        return c.name.trim().toLowerCase() === name.toLowerCase();
+      });
+      if (duplicateOther) return s;
+
+      colors[editingColorIndex] = { name, hex };
+      return { ...s, colors };
     });
 
-    setNewColorName("");
+    resetColorDrafts();
+    focusColorName();
   }
 
-  function removeColor(name: string) {
-    setForm((s) => ({
-      ...s,
-      colors: s.colors.filter((c) => c.name !== name),
-    }));
+  function removeColorByIndex(idx: number) {
+    setForm((s) => {
+      const next = [...s.colors];
+      if (idx < 0 || idx >= next.length) return s;
+      next.splice(idx, 1);
+      return { ...s, colors: next };
+    });
+
+    setEditingColorIndex((cur) => {
+      if (cur == null) return null;
+      if (cur === idx) return null;
+      if (cur > idx) return cur - 1;
+      return cur;
+    });
+
+    if (editingColorIndex === idx) {
+      resetColorDrafts();
+      focusColorName();
+    }
   }
 
+  /* ===================== IMAGENS ===================== */
   function addImageUrl() {
     const normalized = normalizeImageUrl(imageDraft);
     if (!normalized) {
@@ -330,12 +383,32 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     setPreview(url);
   }
 
+  // ✅ NOVO: reordenar imagens (pré)
+  function moveImage(fromIndex: number, toIndex: number) {
+    setForm((s) => {
+      const arr = [...(s.imageUrls || [])];
+      if (fromIndex < 0 || fromIndex >= arr.length) return s;
+      if (toIndex < 0 || toIndex >= arr.length) return s;
+      if (fromIndex === toIndex) return s;
+
+      const [item] = arr.splice(fromIndex, 1);
+      arr.splice(toIndex, 0, item);
+
+      // mantém preview coerente (se a imagem atual existir, fica nela; senão, primeira)
+      const nextPreview = preview && arr.includes(preview) ? preview : arr[0] || "";
+      setPreview(nextPreview);
+
+      return { ...s, imageUrls: arr };
+    });
+  }
+
   function clearImages() {
     setForm((s) => ({ ...s, imageUrls: [] }));
     setPreview("");
     setImageDraft("");
   }
 
+  /* ===================== SAVE ===================== */
   async function save() {
     setSaving(true);
     try {
@@ -343,14 +416,12 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       const category = form.category.trim();
       if (!name || !category) return;
 
-      // imagens normalizadas e únicas
       const imageUrls = uniq(
         (form.imageUrls || [])
           .map((u) => normalizeImageUrl(u))
           .filter(Boolean)
       );
 
-      // compat: imageUrl principal = primeira
       const imageUrl = imageUrls[0] || "";
 
       const mustQty = needsPackQty(form.unit);
@@ -367,7 +438,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         .map((c) => ({ name: normalizeColorName(c.name), hex: c.hex }))
         .filter((c) => c.name && isHexColor(c.hex));
 
-      // preço -> centavos
       const priceCents = parseBRLToCents(form.price);
       if (priceCents == null) {
         setPriceTouched(true);
@@ -386,11 +456,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
           packQty: packQtyToSave,
           colors: colorsToSave,
 
-          // novo
           priceCents,
           imageUrls,
 
-          // compat
           imageUrl,
 
           imagePath: "",
@@ -411,11 +479,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         packQty: packQtyToSave,
         colors: colorsToSave,
 
-        // novo
         priceCents,
         imageUrls,
 
-        // compat
         imageUrl,
 
         imagePath: "",
@@ -442,7 +508,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* topo */}
+      {/* ===================== TOPO ===================== */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <input
           value={q}
@@ -468,7 +534,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         </div>
       )}
 
-      {/* lista */}
+      {/* ===================== LISTA ===================== */}
       <div className="rounded-xl border bg-white">
         <div className="border-b px-4 py-3 text-sm font-medium">Produtos</div>
 
@@ -505,7 +571,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                     <div className="min-w-0">
                       <div className="font-medium">{p.name}</div>
 
-                      {/* badges */}
                       <div className="mt-1 flex flex-wrap items-center gap-2">
                         <span className={categoryBadgeClass()}>
                           {p.category || "—"}
@@ -540,7 +605,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                         )}
                       </div>
 
-                      {/* cores */}
                       {p.colors?.length ? (
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           {p.colors.map((c) => (
@@ -559,7 +623,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                         </div>
                       ) : null}
 
-                      {/* descrição */}
                       {p.description ? (
                         <div className="mt-2 text-xs text-zinc-600 whitespace-pre-wrap">
                           {p.description}
@@ -589,27 +652,29 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         )}
       </div>
 
-      {/* modal */}
+      {/* ===================== MODAL ===================== */}
       {open && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl rounded-xl bg-white border p-4">
+          {/* ✅ Painel maior: mais largo (usa bem a tela) */}
+          <div className="w-full max-w-[1400px] max-h-[95vh] overflow-y-auto rounded-2xl bg-white border p-6">
             <div className="text-lg font-semibold">
               {form.id ? "Editar produto" : "Novo produto"}
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              {/* coluna imagem */}
+            {/* ✅ Coluna de imagens mais larga */}
+            <div className="mt-4 grid gap-6 lg:grid-cols-[620px_1fr]">
+              {/* ===================== MODAL: IMAGENS ===================== */}
               <div>
                 <div className="text-sm font-medium">
-                  Imagens (Drive ou Cloudinary)
+                  Imagens (Cloudinary ou Google Imagens)
                 </div>
 
-                <div className="mt-2 aspect-video rounded-xl border bg-zinc-50 overflow-hidden flex items-center justify-center">
+                <div className="mt-2 h-[220px] sm:h-[240px] lg:h-[260px] rounded-xl border bg-zinc-50 overflow-hidden flex items-center justify-center">
                   {preview ? (
                     <img
                       src={preview}
                       alt="preview"
-                      className="h-full w-full object-cover"
+                      className="h-full w-full object-contain"
                       onError={() => setPreview("")}
                     />
                   ) : (
@@ -628,7 +693,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                     className="w-full rounded-lg border px-3 py-2 text-sm"
                     value={imageDraft}
                     onChange={(e) => setImageDraft(e.target.value)}
-                    placeholder="Cole o link do Google Drive ou Cloudinary"
+                    placeholder="Cole o link do Google Imagens ou Cloudinary"
                   />
                   <button
                     type="button"
@@ -658,67 +723,91 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                       <b>principal</b>.
                     </div>
 
-                    <div className="grid grid-cols-4 gap-2">
-                      {form.imageUrls.map((url, idx) => (
-                        <div
-                          key={url}
-                          className="rounded-lg border overflow-hidden bg-white"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => setPreview(url)}
-                            className="block w-full aspect-square bg-zinc-50"
-                            title="Ver no preview"
+                    <div className="mt-2 max-h-[260px] overflow-y-auto pr-1">
+                      {/* ✅ thumbs maiores em mobile (2 colunas), depois 3/4 */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3">
+                        {form.imageUrls.map((url, idx) => (
+                          <div
+                            key={url}
+                            className="rounded-lg border overflow-hidden bg-white"
                           >
-                            <img
-                              src={url}
-                              alt={`img-${idx + 1}`}
-                              className="h-full w-full object-cover"
-                              onError={() => {
-                                // se quebrar, remove automaticamente
-                                const bad = url;
-                                setTimeout(() => removeImageUrl(bad), 0);
-                              }}
-                            />
-                          </button>
-
-                          <div className="p-1 flex items-center justify-between gap-1">
                             <button
                               type="button"
-                              className={`text-[11px] rounded px-1.5 py-0.5 border ${
-                                idx === 0
-                                  ? "bg-black text-white border-black"
-                                  : "bg-white"
-                              }`}
-                              onClick={() => setMainImage(url)}
-                              title="Definir como principal"
+                              onClick={() => setPreview(url)}
+                              className="block w-full aspect-square bg-zinc-50 flex items-center justify-center"
+                              title="Ver no preview"
                             >
-                              {idx === 0 ? "Principal" : "Tornar principal"}
+                              <img
+                                src={url}
+                                alt={`img-${idx + 1}`}
+                                className="h-full w-full object-contain"
+                                onError={() => {
+                                  const bad = url;
+                                  setTimeout(() => removeImageUrl(bad), 0);
+                                }}
+                              />
                             </button>
 
-                            <button
-                              type="button"
-                              onClick={() => removeImageUrl(url)}
-                              className="text-[11px] rounded px-1.5 py-0.5 border text-red-600"
-                              title="Remover"
-                            >
-                              Remover
-                            </button>
+                            {/* ✅ NOVO: setas pra reordenar */}
+                            <div className="p-1 flex items-center justify-between gap-1">
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => moveImage(idx, idx - 1)}
+                                  disabled={idx === 0}
+                                  className="text-[11px] rounded px-1.5 py-0.5 border disabled:opacity-40"
+                                  title="Mover para esquerda"
+                                >
+                                  ←
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => moveImage(idx, idx + 1)}
+                                  disabled={idx === form.imageUrls.length - 1}
+                                  className="text-[11px] rounded px-1.5 py-0.5 border disabled:opacity-40"
+                                  title="Mover para direita"
+                                >
+                                  →
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className={`text-[11px] rounded px-1.5 py-0.5 border ${
+                                    idx === 0
+                                      ? "bg-black text-white border-black"
+                                      : "bg-white"
+                                  }`}
+                                  onClick={() => setMainImage(url)}
+                                  title="Definir como principal"
+                                >
+                                  {idx === 0 ? "Principal" : "Principal"}
+                                </button>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => removeImageUrl(url)}
+                                className="text-[11px] rounded px-1.5 py-0.5 border text-red-600"
+                                title="Remover"
+                              >
+                                Remover
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}
 
                 <div className="mt-2 text-xs text-zinc-500">
-                  Dica: se colar link do Drive, o sistema converte automaticamente
-                  para link direto.
+                  Dica: Copie endereço de imagem e cole.
                 </div>
               </div>
 
-              {/* coluna campos */}
-              <div className="space-y-3">
+              {/* ===================== MODAL: CAMPOS ===================== */}
+              <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium">Nome</label>
                   <input
@@ -772,7 +861,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                   </div>
                 </div>
 
-                {/* VALOR */}
                 <div>
                   <label className="block text-sm font-medium">Valor (R$)</label>
                   <input
@@ -810,7 +898,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                       onChange={(e) =>
                         setForm((s) => ({
                           ...s,
-                          packQty: digitsOnly(e.target.value), // só número
+                          packQty: digitsOnly(e.target.value),
                         }))
                       }
                       placeholder="Ex: 10"
@@ -824,7 +912,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                   </div>
                 )}
 
-                {/* CORES */}
                 <div>
                   <label className="block text-sm font-medium">
                     Cores do produto
@@ -832,6 +919,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
                   <div className="mt-1 flex flex-col sm:flex-row gap-2">
                     <input
+                      ref={colorNameRef}
                       className="w-full rounded-lg border px-3 py-2 text-sm"
                       value={newColorName}
                       onChange={(e) => setNewColorName(e.target.value)}
@@ -846,22 +934,33 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                         className="h-10 w-14 rounded-lg border bg-white p-1"
                         aria-label="Escolher cor"
                       />
+
                       <button
                         type="button"
-                        onClick={addColor}
+                        onClick={upsertColor}
                         disabled={!normalizeColorName(newColorName)}
                         className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
                       >
-                        Adicionar
+                        {editingColorIndex == null ? "Adicionar" : "Salvar"}
                       </button>
+
+                      {editingColorIndex != null && (
+                        <button
+                          type="button"
+                          onClick={cancelEditColor}
+                          className="rounded-lg border px-3 py-2 text-sm"
+                        >
+                          Cancelar
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   {form.colors.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {form.colors.map((c) => (
+                      {form.colors.map((c, idx) => (
                         <span
-                          key={c.name}
+                          key={`${c.name}-${idx}`}
                           className="inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs bg-white ring-1 ring-zinc-200"
                         >
                           <span
@@ -870,9 +969,19 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                             title={c.hex}
                           />
                           {c.name}
+
                           <button
                             type="button"
-                            onClick={() => removeColor(c.name)}
+                            onClick={() => startEditColor(idx)}
+                            className="ml-1 rounded-full px-2 py-0.5 text-xs border"
+                            title="Editar cor"
+                          >
+                            Editar
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => removeColorByIndex(idx)}
                             className="ml-1 rounded-full px-2 py-0.5 text-xs border"
                             title="Remover cor"
                           >
@@ -923,7 +1032,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
               </div>
             </div>
 
-            <div className="mt-5 flex flex-col sm:flex-row justify-end gap-2">
+            <div className="mt-6 flex flex-col sm:flex-row justify-end gap-2">
               <button
                 onClick={() => setOpen(false)}
                 className="rounded-lg border px-4 py-2 text-sm"

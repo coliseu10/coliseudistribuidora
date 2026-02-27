@@ -2,8 +2,8 @@ import { useState } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "../lib/firebase";
 
-import ProdutosPanel from "../admin/ProdutosPanel";
-import CategoriasPanel from "../admin/CategoriasPanel";
+import ProdutosPanel from "./ProdutosPainel";
+import CategoriasPanel from "./CategoriasiPanel";
 
 export default function Admin() {
   const [tab, setTab] = useState<"produtos" | "categorias">("produtos");
