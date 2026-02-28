@@ -14,6 +14,9 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 
+// ✅ NOVO: segmento (para Home filtrar)
+export type HomeSegment = "iluminacao" | "utensilios";
+
 export type ProductColor = {
   name: string; // "Branco", "Preto Fosco"
   hex: string; // "#ffffff"
@@ -23,6 +26,9 @@ export type ProductDoc = {
   name: string;
   category: string;
   active: boolean;
+
+  // ✅ NOVO: segment (não depende da categoria)
+  segment: HomeSegment | null;
 
   sku: string;
   description: string;
@@ -64,6 +70,13 @@ function toProductColor(x: unknown): ProductColor | null {
 
   const normalizedHex = isHexColor(hex) ? hex.toLowerCase() : "#000000";
   return { name, hex: normalizedHex };
+}
+
+// ✅ NOVO: valida e normaliza segment
+function toSegment(data: DocumentData): HomeSegment | null {
+  const s = data?.segment;
+  if (s === "iluminacao" || s === "utensilios") return s;
+  return null;
 }
 
 function toPriceCents(data: DocumentData): number | null {
@@ -127,11 +140,15 @@ function coerceProductDoc(data: DocumentData): ProductDoc {
 
   const { imageUrls, imageUrl } = coerceImageUrls(data);
   const priceCents = toPriceCents(data);
+  const segment = toSegment(data); // ✅ NOVO
 
   return {
     name: typeof data?.name === "string" ? data.name : "",
     category: typeof data?.category === "string" ? data.category : "",
     active: typeof data?.active === "boolean" ? data.active : true,
+
+    // ✅ NOVO
+    segment,
 
     sku: typeof data?.sku === "string" ? data.sku : "",
     description: typeof data?.description === "string" ? data.description : "",

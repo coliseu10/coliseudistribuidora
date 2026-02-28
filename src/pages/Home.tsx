@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listProducts } from "../lib/products";
-import type { Product } from "../lib/products";
+import { listProducts } from "../lib/produtos";
+import type { Product } from "../lib/produtos";
 
 type UnitOption = "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
 
@@ -60,12 +60,19 @@ type LightboxState = {
   alt: string;
 };
 
+// ✅ NOVO: segmentos da Home (agora via campo do produto: p.segment)
+type HomeSegment = "iluminacao" | "utensilios";
+type ProductWithSegment = Product & { segment?: HomeSegment | null };
+
 export default function Home() {
-  const [items, setItems] = useState<Product[]>([]);
+  const [items, setItems] = useState<ProductWithSegment[]>([]);
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
-  // ✅ NOVO: referência da faixa de categorias + botão flutuante
+  // ✅ NOVO: tela de escolha (antes do catálogo)
+  const [segment, setSegment] = useState<HomeSegment | null>(null);
+
+  // ✅ referência da faixa de categorias + botão flutuante
   const catBarRef = useRef<HTMLDivElement | null>(null);
   const [showCatFab, setShowCatFab] = useState(false);
   const [catFabOpen, setCatFabOpen] = useState(false);
@@ -75,17 +82,22 @@ export default function Home() {
       try {
         setLoading(true);
         const data = await listProducts();
-        setItems(data.filter((p) => p.active));
+        // ✅ mantém lógica, só tipa para segment opcional
+        setItems(data.filter((p) => p.active) as ProductWithSegment[]);
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  const filtered = useMemo(() => items, [items]);
+  // ✅ ALTERADO: agora filtra pelo campo do produto (p.segment), não por texto/categoria
+  const filtered = useMemo(() => {
+    if (!segment) return [];
+    return items.filter((p) => p.segment === segment);
+  }, [items, segment]);
 
   const groups = useMemo(() => {
-    const map = new Map<string, Product[]>();
+    const map = new Map<string, ProductWithSegment[]>();
     for (const p of filtered) {
       const cat = (p.category ?? "").trim() || "Sem categoria";
       const prev = map.get(cat) ?? [];
@@ -111,7 +123,7 @@ export default function Home() {
     [groups],
   );
 
-  // ✅ NOVO: mostra o botão flutuante quando a faixa sair de vista
+  // ✅ mostra o botão flutuante quando a faixa sair de vista
   useEffect(() => {
     const el = catBarRef.current;
     if (!el) return;
@@ -130,7 +142,7 @@ export default function Home() {
     return () => obs.disconnect();
   }, []);
 
-  // ✅ NOVO: fechar painel flutuante no ESC
+  // ✅ fechar painel flutuante no ESC
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setCatFabOpen(false);
@@ -144,10 +156,10 @@ export default function Home() {
     const el = document.getElementById(id);
     if (!el) return;
 
-    const reduceMotion =
-      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const reduceMotion = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    )?.matches;
 
-    // mantém a hash sem dar "pulo"
     history.replaceState(null, "", `#${id}`);
 
     if (reduceMotion) {
@@ -155,7 +167,6 @@ export default function Home() {
       return;
     }
 
-    // Pega o "scroll-margin-top" real (ex: Tailwind scroll-mt-8 => 32px)
     const scrollMarginTop = parseFloat(
       (getComputedStyle(el).scrollMarginTop || "0").replace("px", ""),
     );
@@ -169,10 +180,8 @@ export default function Home() {
     const diff = targetY - startY;
     const distance = Math.abs(diff);
 
-    // ✅ duração mais "gentil" (ajustável)
-    const duration = Math.min(1800, Math.max(900, distance * 0.8)); // ms
+    const duration = Math.min(1800, Math.max(900, distance * 0.8));
 
-    // ✅ easing bem suave (easeInOutCubic)
     const easeInOutCubic = (t: number) =>
       t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
@@ -237,7 +246,6 @@ export default function Home() {
   }
 
   return (
-    // ✅ AJUSTE: trava qualquer overflow lateral gerado por w-screen/100vw
     <div className="min-h-screen bg-white overflow-x-hidden">
       <div className="w-full px-4 py-6 lg:px-0">
         {/* TOPO */}
@@ -329,212 +337,291 @@ export default function Home() {
           </div>
         </div>
 
-        {/* FAIXA INFINITA */}
-        <div
-          ref={catBarRef}
-          className="relative left-1/2 right-1/2 -mx-[50vw] w-screen mt-8"
-          style={{
-            background:
-              "linear-gradient(90deg, rgb(11,44,112) 0%, rgb(24,88,180) 40%, rgb(255,122,0) 100%)",
-          }}
-        >
-          <div className="w-full px-4 py-6 lg:px-10 flex flex-col items-center gap-4">
-            <div className="text-white font-black uppercase tracking-wide text-base sm:text-lg text-center">
-              Encontre por categoria
-            </div>
+        {/* ✅ TELA DE ESCOLHA (ANTES DO CATÁLOGO) */}
+        {!segment && (
+          <div className="mt-10 lg:px-10">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* ESQUERDA: ILUMINAÇÃO */}
+              <button
+                type="button"
+                onClick={() => setSegment("iluminacao")}
+                className="group relative overflow-hidden rounded-2xl border bg-white shadow-sm"
+              >
+                <img
+                  src="/ilumicao.png"
+                  alt="Iluminação"
+                  className="h-72 w-full object-cover transition group-hover:scale-105"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-black/35" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="rounded-full bg-white/15 px-6 py-3 text-white font-black text-4xl uppercase tracking-wide">
+                    Iluminação
+                  </div>
+                </div>
+              </button>
 
-            <div className="flex flex-wrap justify-center gap-3">
-              {categoryLinks.map(({ cat, id }) => (
-                <a
-                  key={id}
-                  href={`#${id}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    scrollToCategory(id);
-                  }}
-                  title={`Ir para ${cat}`}
-                  className="rounded-full bg-white/15 px-4 py-2 text-sm font-black text-white transition hover:bg-white/25"
-                >
-                  {cat}
-                </a>
-              ))}
+              {/* DIREITA: UTENSÍLIOS */}
+              <button
+                type="button"
+                onClick={() => setSegment("utensilios")}
+                className="group relative overflow-hidden rounded-2xl border bg-white shadow-sm"
+              >
+                <img
+                  src="/utensilio.png"
+                  alt="Utensílios Domésticos"
+                  className="h-72 w-full object-cover transition group-hover:scale-105"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-black/35" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="rounded-full bg-white/15 px-6 py-3 text-white font-black text-4xl uppercase tracking-wide">
+                    Utensílios Domésticos
+                  </div>
+                </div>
+              </button>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* LISTAGEM */}
-        <div className="mt-8 lg:px-10">
-          {loading ? (
-            <div className="text-sm text-zinc-600">Carregando...</div>
-          ) : groups.length === 0 ? (
-            <div className="text-sm text-zinc-600">
-              Nenhum produto encontrado.
+        {/* ✅ topo do catálogo + botão trocar */}
+        {segment && (
+          <div className="mt-8 lg:px-10 flex items-center justify-between gap-3">
+            <div className="text-sm font-black text-zinc-800">
+              {segment === "iluminacao"
+                ? "Exibindo: Iluminação"
+                : "Exibindo: Utensílios Domésticos"}
             </div>
-          ) : (
-            <div className="space-y-12">
-              {groups.map(([cat, list]) => {
-                const sectionId = `cat-${slugify(cat)}`;
 
-                return (
-                  <section
-                    key={cat}
-                    id={sectionId}
-                    className="bg-white scroll-mt-8"
-                  >
-                    <h2
-                      className="relative left-1/2 right-1/2 -mx-[50vw] w-screen text-center py-3 text-lg sm:text-xl font-black uppercase tracking-wide text-white"
-                      style={{
-                        background:
-                          "linear-gradient(90deg, rgb(11,44,112) 0%, rgb(24,88,180) 45%, rgb(255,122,0) 100%)",
+            <button
+              type="button"
+              onClick={() => setSegment(null)}
+              className="rounded-lg border px-3 py-2 text-sm bg-white"
+              title="Trocar"
+            >
+              Trocar categoria
+            </button>
+          </div>
+        )}
+
+        {/* ✅ CATÁLOGO SÓ APARECE DEPOIS QUE ESCOLHER */}
+        {segment && (
+          <>
+            {/* FAIXA INFINITA */}
+            <div
+              ref={catBarRef}
+              className="relative left-1/2 right-1/2 -mx-[50vw] w-screen mt-8"
+              style={{
+                background:
+                  "linear-gradient(90deg, rgb(11,44,112) 0%, rgb(24,88,180) 40%, rgb(255,122,0) 100%)",
+              }}
+            >
+              <div className="w-full px-4 py-6 lg:px-10 flex flex-col items-center gap-4">
+                <div className="text-white font-black uppercase tracking-wide text-base sm:text-lg text-center">
+                  Encontre por categoria
+                </div>
+
+                <div className="flex flex-wrap justify-center gap-3">
+                  {categoryLinks.map(({ cat, id }) => (
+                    <a
+                      key={id}
+                      href={`#${id}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        scrollToCategory(id);
                       }}
+                      title={`Ir para ${cat}`}
+                      className="rounded-full bg-white/15 px-4 py-2 text-sm font-black text-white transition hover:bg-white/25"
                     >
                       {cat}
-                    </h2>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </div>
 
-                    {/* GRID */}
-                    <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-                      {list.map((p) => {
-                        const colors = Array.isArray(p.colors) ? p.colors : [];
-                        const urls = getProductImages(p);
-                        const firstImage = urls[0] ?? "";
-                        const pack = formatPack(p.unit ?? "", p.packQty ?? null);
-                        const price = formatPriceCents(p.priceCents ?? null);
+            {/* LISTAGEM */}
+            <div className="mt-8 lg:px-10">
+              {loading ? (
+                <div className="text-sm text-zinc-600">Carregando...</div>
+              ) : groups.length === 0 ? (
+                <div className="text-sm text-zinc-600">
+                  Nenhum produto encontrado.
+                </div>
+              ) : (
+                <div className="space-y-12">
+                  {groups.map(([cat, list]) => {
+                    const sectionId = `cat-${slugify(cat)}`;
 
-                        return (
-                          <article
-                            key={p.id}
-                            className="rounded-2xl bg-white overflow-hidden border-0 shadow-sm"
-                          >
-                            {/* IMAGEM */}
-                            <div className="relative">
-                              {firstImage ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openLightbox(p)}
-                                  className="block w-full bg-white"
-                                  title="Abrir imagens"
-                                >
-                                  <div className="h-48 w-full bg-white flex items-center justify-center">
-                                    <img
-                                      src={firstImage}
-                                      alt={p.name}
-                                      className="h-full w-full object-contain"
-                                      loading="lazy"
-                                    />
-                                  </div>
-                                </button>
-                              ) : (
-                                <div className="h-48 w-full bg-white" />
-                              )}
-                            </div>
+                    return (
+                      <section
+                        key={cat}
+                        id={sectionId}
+                        className="bg-white scroll-mt-8"
+                      >
+                        <h2
+                          className="relative left-1/2 right-1/2 -mx-[50vw] w-screen text-center py-3 text-lg sm:text-xl font-black uppercase tracking-wide text-white"
+                          style={{
+                            background:
+                              "linear-gradient(90deg, rgb(11,44,112) 0%, rgb(24,88,180) 45%, rgb(255,122,0) 100%)",
+                          }}
+                        >
+                          {cat}
+                        </h2>
 
-                            {/* CONTEÚDO */}
-                            <div className="p-4">
-                              <div className="min-w-0">
-                                <div className="font-black leading-snug line-clamp-2">
-                                  {p.name}
-                                </div>
+                        {/* GRID */}
+                        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                          {list.map((p) => {
+                            const colors = Array.isArray(p.colors)
+                              ? p.colors
+                              : [];
+                            const urls = getProductImages(p);
+                            const firstImage = urls[0] ?? "";
+                            const pack = formatPack(
+                              p.unit ?? "",
+                              p.packQty ?? null,
+                            );
+                            const price = formatPriceCents(
+                              p.priceCents ?? null,
+                            );
 
-                                {p.sku ? (
-                                  <div className="mt-1 text-xs text-zinc-600">
-                                    Cód: {p.sku}
-                                  </div>
-                                ) : (
-                                  <div className="mt-1 text-xs text-zinc-600">
-                                    &nbsp;
-                                  </div>
-                                )}
-
-                                {p.description ? (
-                                  <div className="mt-2 text-xs text-zinc-700 line-clamp-3">
-                                    {p.description}
-                                  </div>
-                                ) : (
-                                  <div className="mt-2 text-xs text-zinc-700">
-                                    &nbsp;
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="mt-3 h-px w-full bg-zinc-200" />
-
-                              {/* META */}
-                              <div className="mt-3 grid grid-cols-1 gap-3 text-sm">
-                                {/* COR */}
-                                <div className="min-w-0">
-                                  <div className="text-[11px] font-black text-zinc-700">
-                                    COR
-                                  </div>
-
-                                  {colors.length ? (
-                                    <div className="mt-2 flex flex-wrap gap-2">
-                                      {colors.slice(0, 6).map((c) => (
-                                        <span
-                                          key={`${p.id}-${c.name}`}
-                                          className="inline-flex items-center gap-2 rounded-full bg-zinc-50 px-3 py-1 text-xs font-semibold"
-                                          title={c.name}
-                                        >
-                                          <span
-                                            className="h-3 w-3 rounded-full ring-1 ring-black/20"
-                                            style={{ backgroundColor: c.hex }}
-                                          />
-                                          <span className="truncate max-w-[140px]">
-                                            {c.name}
-                                          </span>
-                                        </span>
-                                      ))}
-
-                                      {colors.length > 6 && (
-                                        <span className="text-xs font-semibold text-zinc-600">
-                                          +{colors.length - 6}
-                                        </span>
-                                      )}
-                                    </div>
+                            return (
+                              <article
+                                key={p.id}
+                                className="rounded-2xl bg-white overflow-hidden border-0 shadow-sm"
+                              >
+                                {/* IMAGEM */}
+                                <div className="relative">
+                                  {firstImage ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openLightbox(p)}
+                                      className="block w-full bg-white"
+                                      title="Abrir imagens"
+                                    >
+                                      <div className="h-48 w-full bg-white flex items-center justify-center">
+                                        <img
+                                          src={firstImage}
+                                          alt={p.name}
+                                          className="h-full w-full object-contain"
+                                          loading="lazy"
+                                        />
+                                      </div>
+                                    </button>
                                   ) : (
-                                    <div className="mt-1 text-xs text-zinc-500">
-                                      &nbsp;
-                                    </div>
+                                    <div className="h-48 w-full bg-white" />
                                   )}
                                 </div>
 
-                                {/* Quantidade + Preço */}
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="rounded-xl bg-zinc-50 px-3 py-2">
-                                    <div className="font-semibold leading-tight line-clamp-2">
-                                      {pack || <span>&nbsp;</span>}
+                                {/* CONTEÚDO */}
+                                <div className="p-4">
+                                  <div className="min-w-0">
+                                    <div className="font-black leading-snug line-clamp-2">
+                                      {p.name}
                                     </div>
+
+                                    {p.sku ? (
+                                      <div className="mt-1 text-xs text-zinc-600">
+                                        Cód: {p.sku}
+                                      </div>
+                                    ) : (
+                                      <div className="mt-1 text-xs text-zinc-600">
+                                        &nbsp;
+                                      </div>
+                                    )}
+
+                                    {p.description ? (
+                                      <div className="mt-2 text-xs text-zinc-700 line-clamp-3">
+                                        {p.description}
+                                      </div>
+                                    ) : (
+                                      <div className="mt-2 text-xs text-zinc-700">
+                                        &nbsp;
+                                      </div>
+                                    )}
                                   </div>
 
-                                  <div className="rounded-xl bg-zinc-50 px-3 py-2">
-                                    <div className="flex items-center justify-between">
+                                  <div className="mt-3 h-px w-full bg-zinc-200" />
+
+                                  {/* META */}
+                                  <div className="mt-3 grid grid-cols-1 gap-3 text-sm">
+                                    {/* COR */}
+                                    <div className="min-w-0">
                                       <div className="text-[11px] font-black text-zinc-700">
-                                        Preço
+                                        COR
                                       </div>
-                                      <div className="text-base font-black text-zinc-900">
-                                        {price || <span>&nbsp;</span>}
+
+                                      {colors.length ? (
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                          {colors.slice(0, 6).map((c) => (
+                                            <span
+                                              key={`${p.id}-${c.name}`}
+                                              className="inline-flex items-center gap-2 rounded-full bg-zinc-50 px-3 py-1 text-xs font-semibold"
+                                              title={c.name}
+                                            >
+                                              <span
+                                                className="h-3 w-3 rounded-full ring-1 ring-black/20"
+                                                style={{
+                                                  backgroundColor: c.hex,
+                                                }}
+                                              />
+                                              <span className="truncate max-w-[140px]">
+                                                {c.name}
+                                              </span>
+                                            </span>
+                                          ))}
+
+                                          {colors.length > 6 && (
+                                            <span className="text-xs font-semibold text-zinc-600">
+                                              +{colors.length - 6}
+                                            </span>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <div className="mt-1 text-xs text-zinc-500">
+                                          &nbsp;
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Quantidade + Preço */}
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                                        <div className="font-semibold leading-tight line-clamp-2">
+                                          {pack || <span>&nbsp;</span>}
+                                        </div>
+                                      </div>
+
+                                      <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                                        <div className="flex items-center justify-between">
+                                          <div className="text-[11px] font-black text-zinc-700">
+                                            Preço
+                                          </div>
+                                          <div className="text-base font-black text-zinc-900">
+                                            {price || <span>&nbsp;</span>}
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
                                 </div>
-                              </div>
-                              {/* ✅ sem botão extra */}
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  </section>
-                );
-              })}
+                              </article>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
 
-      {/* ✅ NOVO: BOTÃO FLUTUANTE + LISTA DE CATEGORIAS */}
-      {showCatFab && categoryLinks.length > 0 && (
+      {/* ✅ BOTÃO FLUTUANTE (SÓ QUANDO TEM CATÁLOGO) */}
+      {segment && showCatFab && categoryLinks.length > 0 && (
         <>
-          {/* (opcional) clique fora para fechar */}
           {catFabOpen && (
             <div
               className="fixed inset-0 z-30"
@@ -544,7 +631,6 @@ export default function Home() {
           )}
 
           <div className="fixed bottom-4 right-4 z-40">
-            {/* ✅ botão aparece SÓ quando o painel está fechado */}
             {!catFabOpen && (
               <button
                 type="button"
@@ -565,7 +651,6 @@ export default function Home() {
               </button>
             )}
 
-            {/* ✅ painel aparece quando aberto (sem o botão em cima) */}
             {catFabOpen && (
               <div
                 id="cat-fab-panel"

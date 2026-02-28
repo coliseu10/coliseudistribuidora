@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listCategories, type Category } from "../lib/categories";
+import { listCategories, type Category } from "../lib/categorias";
 import {
   createProduct,
   listProducts,
   removeProduct,
   updateProduct,
   type ProductColor,
-} from "../lib/products";
-import type { Product } from "../lib/products";
+  type HomeSegment,
+} from "../lib/produtos";
+import type { Product } from "../lib/produtos";
 import { normalizeImageUrl } from "../lib/normalizeImageUrl";
 
 export type ProductIntent =
   | { type: "edit"; id: string }
-  | { type: "new"; category?: string };
+  | { type: "new"; category?: string; segment?: HomeSegment };
 
 type Props = {
   intent?: ProductIntent | null;
@@ -26,6 +27,9 @@ type FormState = {
   name: string;
   category: string;
   active: boolean;
+
+  // segmento do produto (para Home)
+  segment: HomeSegment | "";
 
   sku: string;
   description: string;
@@ -42,6 +46,7 @@ const emptyForm: FormState = {
   name: "",
   category: "",
   active: true,
+  segment: "",
   sku: "",
   description: "",
   unit: "Unidade",
@@ -150,7 +155,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
   const [newColorName, setNewColorName] = useState("");
   const [newColorHex, setNewColorHex] = useState("#000000");
   const [editingColorIndex, setEditingColorIndex] = useState<number | null>(
-    null
+    null,
   );
 
   /* ===================== STATE (validações) ===================== */
@@ -183,6 +188,15 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     reload();
   }, []);
 
+  /* ===================== DERIVED: cats por segmento ===================== */
+  const catsForSegment = useMemo(() => {
+    const seg = form.segment;
+    if (seg !== "iluminacao" && seg !== "utensilios") return [];
+    return cats
+      .filter((c) => c.segment === seg)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  }, [cats, form.segment]);
+
   /* ===================== INTENT ===================== */
   useEffect(() => {
     if (!intent) return;
@@ -190,7 +204,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
     if (intent.type === "new") {
       if (cats.length === 0) return;
-      openNew(intent.category);
+      openNew(intent.category, intent.segment);
       clearIntent?.();
       return;
     }
@@ -214,8 +228,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         (p.category || "").toLowerCase().includes(s) ||
         (p.sku || "").toLowerCase().includes(s);
 
-      const inColors =
-        (p.colors || []).some((c) => (c.name || "").toLowerCase().includes(s));
+      const inColors = (p.colors || []).some((c) =>
+        (c.name || "").toLowerCase().includes(s),
+      );
 
       return inBase || inColors;
     });
@@ -230,18 +245,36 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     setEditingColorIndex(null);
   }
 
-  function openNew(categoryOverride?: string) {
-    const first = categoryOverride ?? cats[0]?.name ?? "";
+  function openNew(categoryOverride?: string, segmentOverride?: HomeSegment) {
+    const seg = segmentOverride ?? ""; // pode vir vazio
+    const segValid = seg === "iluminacao" || seg === "utensilios" ? seg : "";
+
+    // categoria só vai ser definida depois que escolher o segmento
     const next: FormState = {
       ...emptyForm,
-      category: first,
       unit: "Unidade",
       packQty: "",
       price: "",
       colors: [],
       imageUrls: [],
       active: true,
+
+      segment: segValid,
+      category: "", // ✅ começa vazio
+      name: "",
+      sku: "",
+      description: "",
     };
+
+    // se veio categoria no intent, guarda só se o segmento for compatível (vamos checar depois)
+    // (mantém simples: se não tiver segmento ainda, só ignora e deixa escolher)
+    if (categoryOverride && segValid) {
+      const list = cats
+        .filter((c) => c.segment === segValid)
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      const exists = list.some((c) => c.name === categoryOverride);
+      if (exists) next.category = categoryOverride;
+    }
 
     setForm(next);
     setPreview("");
@@ -252,18 +285,26 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
   }
 
   function openEdit(p: Product) {
-    const rawUrls =
-      p.imageUrls?.length ? p.imageUrls : p.imageUrl ? [p.imageUrl] : [];
+    const rawUrls = p.imageUrls?.length
+      ? p.imageUrls
+      : p.imageUrl
+        ? [p.imageUrl]
+        : [];
 
     const imageUrls = uniq(
-      rawUrls.map((u) => normalizeImageUrl(u)).filter(Boolean)
+      rawUrls.map((u) => normalizeImageUrl(u)).filter(Boolean),
     );
+
+    const seg = (p as Product & { segment?: HomeSegment | null }).segment ?? "";
+    const segValid = seg === "iluminacao" || seg === "utensilios" ? seg : "";
 
     const next: FormState = {
       id: p.id,
       name: p.name,
-      category: p.category,
       active: p.active,
+
+      segment: segValid,
+      category: p.category, // se não existir no segmento, vamos ajustar depois (useEffect)
       sku: p.sku,
       description: p.description,
       unit: p.unit,
@@ -280,6 +321,35 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     setPriceTouched(false);
     setOpen(true);
   }
+
+  // ✅ NOVO: quando troca segmento, ajusta categoria automaticamente
+  useEffect(() => {
+    if (!open) return;
+
+    const seg = form.segment;
+    if (seg !== "iluminacao" && seg !== "utensilios") {
+      if (form.category) setForm((s) => ({ ...s, category: "" }));
+      return;
+    }
+
+    const list = cats
+      .filter((c) => c.segment === seg)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    // se não tem categoria ainda, define a primeira do segmento (se existir)
+    if (!form.category) {
+      const first = list[0]?.name ?? "";
+      if (first) setForm((s) => ({ ...s, category: first }));
+      return;
+    }
+
+    // se a categoria atual não existe nesse segmento, troca pra primeira
+    const exists = list.some((c) => c.name === form.category);
+    if (!exists) {
+      const first = list[0]?.name ?? "";
+      setForm((s) => ({ ...s, category: first }));
+    }
+  }, [form.segment, cats, open]); // intencional
 
   /* ===================== CORES ===================== */
   function startEditColor(idx: number) {
@@ -306,7 +376,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
       if (editingColorIndex == null) {
         const exists = colors.some(
-          (c) => c.name.trim().toLowerCase() === name.toLowerCase()
+          (c) => c.name.trim().toLowerCase() === name.toLowerCase(),
         );
         if (exists) return s;
         return { ...s, colors: [...colors, { name, hex }] };
@@ -383,7 +453,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     setPreview(url);
   }
 
-  // ✅ NOVO: reordenar imagens (pré)
   function moveImage(fromIndex: number, toIndex: number) {
     setForm((s) => {
       const arr = [...(s.imageUrls || [])];
@@ -394,8 +463,8 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       const [item] = arr.splice(fromIndex, 1);
       arr.splice(toIndex, 0, item);
 
-      // mantém preview coerente (se a imagem atual existir, fica nela; senão, primeira)
-      const nextPreview = preview && arr.includes(preview) ? preview : arr[0] || "";
+      const nextPreview =
+        preview && arr.includes(preview) ? preview : arr[0] || "";
       setPreview(nextPreview);
 
       return { ...s, imageUrls: arr };
@@ -416,10 +485,18 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       const category = form.category.trim();
       if (!name || !category) return;
 
+      const segmentToSave: HomeSegment | null =
+        form.segment === "iluminacao" || form.segment === "utensilios"
+          ? form.segment
+          : null;
+
+      if (!segmentToSave) {
+        alert("Selecione o segmento (Iluminação ou Utensílios).");
+        return;
+      }
+
       const imageUrls = uniq(
-        (form.imageUrls || [])
-          .map((u) => normalizeImageUrl(u))
-          .filter(Boolean)
+        (form.imageUrls || []).map((u) => normalizeImageUrl(u)).filter(Boolean),
       );
 
       const imageUrl = imageUrls[0] || "";
@@ -428,7 +505,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       const qty = parsePositiveInt(form.packQty);
 
       if (mustQty && qty == null) {
-        alert("Preencha uma quantidade válida (inteiro > 0) para essa embalagem.");
+        alert(
+          "Preencha uma quantidade válida (inteiro > 0) para essa embalagem.",
+        );
         return;
       }
 
@@ -450,17 +529,15 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
           name,
           category,
           active: form.active,
+          segment: segmentToSave,
           sku: form.sku.trim(),
           description: form.description.trim(),
           unit: form.unit,
           packQty: packQtyToSave,
           colors: colorsToSave,
-
           priceCents,
           imageUrls,
-
           imageUrl,
-
           imagePath: "",
         });
 
@@ -473,17 +550,15 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         name,
         category,
         active: form.active,
+        segment: segmentToSave,
         sku: form.sku.trim(),
         description: form.description.trim(),
         unit: form.unit,
         packQty: packQtyToSave,
         colors: colorsToSave,
-
         priceCents,
         imageUrls,
-
         imageUrl,
-
         imagePath: "",
       });
 
@@ -505,6 +580,10 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
   const priceOk = parseBRLToCents(form.price) != null;
   const showPriceError = priceTouched && !priceOk;
+
+  // ✅ NOVO: categoria liberada só se segmento selecionado e existir categoria no segmento
+  const segmentChosen = form.segment === "iluminacao" || form.segment === "utensilios";
+  const categoryEnabled = segmentChosen && catsForSegment.length > 0;
 
   return (
     <div className="space-y-4">
@@ -655,13 +734,11 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       {/* ===================== MODAL ===================== */}
       {open && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
-          {/* ✅ Painel maior: mais largo (usa bem a tela) */}
           <div className="w-full max-w-[1400px] max-h-[95vh] overflow-y-auto rounded-2xl bg-white border p-6">
             <div className="text-lg font-semibold">
               {form.id ? "Editar produto" : "Novo produto"}
             </div>
 
-            {/* ✅ Coluna de imagens mais larga */}
             <div className="mt-4 grid gap-6 lg:grid-cols-[620px_1fr]">
               {/* ===================== MODAL: IMAGENS ===================== */}
               <div>
@@ -724,7 +801,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                     </div>
 
                     <div className="mt-2 max-h-[260px] overflow-y-auto pr-1">
-                      {/* ✅ thumbs maiores em mobile (2 colunas), depois 3/4 */}
                       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3">
                         {form.imageUrls.map((url, idx) => (
                           <div
@@ -748,7 +824,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                               />
                             </button>
 
-                            {/* ✅ NOVO: setas pra reordenar */}
                             <div className="p-1 flex items-center justify-between gap-1">
                               <div className="flex items-center gap-1">
                                 <button
@@ -820,21 +895,56 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                   />
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
+                {/* ✅ Segmento primeiro, depois Categoria */}
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <label className="block text-sm font-medium">Segmento</label>
+                    <select
+                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white"
+                      value={form.segment}
+                      onChange={(e) => {
+                        const seg = e.target.value as FormState["segment"];
+                        setForm((s) => ({
+                          ...s,
+                          segment: seg,
+                          category: "", // ✅ limpa para recalcular pela lista do segmento
+                        }));
+                      }}
+                    >
+                      <option value="">— selecione —</option>
+                      <option value="iluminacao">Iluminação</option>
+                      <option value="utensilios">Utensílios Domésticos</option>
+                    </select>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium">Categoria</label>
                     <select
-                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white"
+                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white disabled:bg-zinc-50 disabled:text-zinc-500"
                       value={form.category}
                       onChange={(e) =>
                         setForm((s) => ({ ...s, category: e.target.value }))
                       }
+                      disabled={!categoryEnabled}
+                      title={
+                        !segmentChosen
+                          ? "Selecione o segmento primeiro"
+                          : catsForSegment.length === 0
+                            ? "Não há categorias cadastradas neste segmento"
+                            : ""
+                      }
                     >
-                      {cats.map((c) => (
-                        <option key={c.id} value={c.name}>
-                          {c.name}
-                        </option>
-                      ))}
+                      {!segmentChosen ? (
+                        <option value="">Selecione o segmento</option>
+                      ) : catsForSegment.length === 0 ? (
+                        <option value="">Nenhuma categoria neste segmento</option>
+                      ) : (
+                        catsForSegment.map((c) => (
+                          <option key={c.id} value={c.name}>
+                            {c.name}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
 
@@ -1045,7 +1155,8 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                 disabled={
                   saving ||
                   !form.name.trim() ||
-                  !form.category.trim() ||
+                  !form.segment || // exige segmento
+                  !form.category.trim() || // exige categoria válida
                   !qtyOk ||
                   !priceOk
                 }

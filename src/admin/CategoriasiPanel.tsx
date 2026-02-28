@@ -6,14 +6,16 @@ import {
   renameCategory,
   setCategoryOrder,
   type Category,
-} from "../lib/categories";
-import { listProducts, removeProduct } from "../lib/products";
-import type { Product } from "../lib/products";
+  type CategorySegment,
+} from "../lib/categorias";
+import { listProducts, removeProduct, type HomeSegment } from "../lib/produtos";
+import type { Product } from "../lib/produtos";
 
 type Props = {
   onEditProduct?: (id: string) => void;
-  onNewProduct?: (categoryName: string) => void;
+  onNewProduct?: (categoryName: string, segment?: HomeSegment) => void;
 };
+
 type UnitOption = "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
 type ProductColor = { name: string; hex: string };
 type ProductWithColors = Product & { colors?: ProductColor[] };
@@ -27,22 +29,25 @@ function formatPack(unit: UnitOption, packQty: number | null) {
   return packQty && packQty > 0 ? `${unit} • ${packQty} peças` : unit;
 }
 
-export default function CategoriasPanel({
-  onEditProduct,
-  onNewProduct,
-}: Props) {
+export default function CategoriasPanel({ onEditProduct, onNewProduct }: Props) {
   const [cats, setCats] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [newName, setNewName] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [newNameIlum, setNewNameIlum] = useState("");
+  const [newNameUten, setNewNameUten] = useState("");
+  const [savingIlum, setSavingIlum] = useState(false);
+  const [savingUten, setSavingUten] = useState(false);
 
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
-  const [openCatIds, setOpenCatIds] = useState<Set<string>>(() => new Set());
+  // ✅ abertura por segmento (não "global" pras duas colunas)
+  const [openCatIdBySeg, setOpenCatIdBySeg] = useState<{
+    iluminacao: string | null;
+    utensilios: string | null;
+  }>({ iluminacao: null, utensilios: null });
 
   async function reload() {
     setLoading(true);
@@ -69,16 +74,44 @@ export default function CategoriasPanel({
     return map;
   }, [products]);
 
-  async function add() {
-    const name = newName.trim();
+  const catsBySeg = useMemo(() => {
+    const ilum: Category[] = [];
+    const uten: Category[] = [];
+
+    for (const c of cats) {
+      if (c.segment === "utensilios") uten.push(c);
+      else ilum.push(c);
+    }
+
+    ilum.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    uten.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    return { ilum, uten };
+  }, [cats]);
+
+  function nextOrderFor(seg: CategorySegment) {
+    const list = seg === "utensilios" ? catsBySeg.uten : catsBySeg.ilum;
+    const max = list.reduce((m, c) => Math.max(m, c.order ?? 0), -1);
+    return max + 1;
+  }
+
+  async function add(seg: CategorySegment) {
+    const name = seg === "utensilios" ? newNameUten.trim() : newNameIlum.trim();
     if (!name) return;
-    setSaving(true);
+
+    if (seg === "utensilios") setSavingUten(true);
+    else setSavingIlum(true);
+
     try {
-      await createCategory(name, cats.length);
-      setNewName("");
+      await createCategory(name, nextOrderFor(seg), seg);
+
+      if (seg === "utensilios") setNewNameUten("");
+      else setNewNameIlum("");
+
       await reload();
     } finally {
-      setSaving(false);
+      if (seg === "utensilios") setSavingUten(false);
+      else setSavingIlum(false);
     }
   }
 
@@ -105,25 +138,28 @@ export default function CategoriasPanel({
     await removeCategory(c.id);
     await reload();
   }
+
   async function delProd(p: Product) {
     if (!confirm(`Excluir o produto "${p.name}"?`)) return;
     await removeProduct(p.id);
     await reload();
   }
 
-  function toggleOpen(c: Category) {
-    setOpenCatIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(c.id)) next.delete(c.id);
-      else next.add(c.id);
-      return next;
+  function toggleOpen(seg: CategorySegment, c: Category) {
+    setOpenCatIdBySeg((prev) => {
+      const key = seg === "utensilios" ? "utensilios" : "iluminacao";
+      const cur = prev[key];
+      return { ...prev, [key]: cur === c.id ? null : c.id };
     });
   }
 
-  async function moveUp(index: number) {
-    if (index <= 0) return;
-    const a = cats[index - 1],
-      b = cats[index];
+  async function moveUp(seg: CategorySegment, indexInSeg: number) {
+    const list = seg === "utensilios" ? catsBySeg.uten : catsBySeg.ilum;
+    if (indexInSeg <= 0) return;
+
+    const a = list[indexInSeg - 1];
+    const b = list[indexInSeg];
+
     await Promise.all([
       setCategoryOrder(a.id, b.order),
       setCategoryOrder(b.id, a.order),
@@ -131,10 +167,13 @@ export default function CategoriasPanel({
     await reload();
   }
 
-  async function moveDown(index: number) {
-    if (index >= cats.length - 1) return;
-    const a = cats[index],
-      b = cats[index + 1];
+  async function moveDown(seg: CategorySegment, indexInSeg: number) {
+    const list = seg === "utensilios" ? catsBySeg.uten : catsBySeg.ilum;
+    if (indexInSeg >= list.length - 1) return;
+
+    const a = list[indexInSeg];
+    const b = list[indexInSeg + 1];
+
     await Promise.all([
       setCategoryOrder(a.id, b.order),
       setCategoryOrder(b.id, a.order),
@@ -142,96 +181,111 @@ export default function CategoriasPanel({
     await reload();
   }
 
-  return (
-    <div className="space-y-4">
-      <div className="rounded-xl border bg-white p-4">
-        <div className="text-sm font-medium text-blue-600">Cadastrar Categoria</div>
-        <div className="mt-3 flex flex-col sm:flex-row gap-2">
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="Exemplo de Categoria: Arandela, Spot Duplo, Lustre..."
-            className="w-full rounded-lg border px-3 py-2 text-sm"
-          />
-          <button
-            onClick={add}
-            disabled={saving || !newName.trim()}
-            className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
-            {saving ? "Salvando..." : "Cadastrar"}
-          </button>
-        </div>
-      </div>
+  function renderColumn(title: string, seg: CategorySegment, list: Category[]) {
+    const isUten = seg === "utensilios";
+    const inputValue = isUten ? newNameUten : newNameIlum;
+    const setInputValue = isUten ? setNewNameUten : setNewNameIlum;
+    const saving = isUten ? savingUten : savingIlum;
 
-      <div className="rounded-xl border bg-white">
-        <div className="border-b px-4 py-3 text-sm font-medium">
-          Categorias cadastradas (ordem da página principal)
+    const segmentForProduct: HomeSegment =
+      seg === "utensilios" ? "utensilios" : "iluminacao";
+
+    const openId =
+      seg === "utensilios"
+        ? openCatIdBySeg.utensilios
+        : openCatIdBySeg.iluminacao;
+
+    return (
+      <div className="rounded-xl border bg-white overflow-hidden w-full">
+        <div className="border-b px-4 py-3 text-sm font-medium">{title}</div>
+
+        <div className="p-4">
+          <div className="text-sm font-medium text-blue-600">
+            Cadastrar Categoria
+          </div>
+          <div className="mt-3 flex flex-col sm:flex-row gap-2">
+            <input
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder="Ex: Arandela, Spot Duplo, Lustre..."
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            />
+            <button
+              onClick={() => add(seg)}
+              disabled={saving || !inputValue.trim()}
+              className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+            >
+              {saving ? "Salvando..." : "Cadastrar"}
+            </button>
+          </div>
         </div>
 
         {loading ? (
-          <div className="p-4 text-sm text-zinc-600">Carregando...</div>
-        ) : cats.length === 0 ? (
-          <div className="p-4 text-sm text-zinc-600">
+          <div className="px-4 pb-4 text-sm text-zinc-600">Carregando...</div>
+        ) : list.length === 0 ? (
+          <div className="px-4 pb-4 text-sm text-zinc-600">
             Nenhuma categoria cadastrada ainda.
           </div>
         ) : (
           <div className="divide-y">
-            {cats.map((c, idx) => {
-              const list = productsByCategoryName.get(c.name) ?? [];
-              const isOpen = openCatIds.has(c.id);
+            {list.map((c, idxSeg) => {
+              const prods = productsByCategoryName.get(c.name) ?? [];
+              const isOpen = openId === c.id;
 
               return (
                 <div key={c.id} className="px-4 py-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-  {/* ESQUERDA */}
-  <div className="flex items-center gap-3 flex-1 min-w-0">
-    <button
-      type="button"
-      onClick={() => toggleOpen(c)}
-      className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-lg border bg-white hover:bg-zinc-50"
-      title={isOpen ? "Fechar produtos" : "Abrir produtos"}
-      aria-expanded={isOpen}
-    >
-      <svg
-        className={`h-6 w-6 text-black transition-transform ${isOpen ? "rotate-90" : ""}`}
-        viewBox="0 0 20 20"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path
-          fillRule="evenodd"
-          d="M7.21 14.77a.75.75 0 0 1 .02-1.06L10.94 10 7.23 6.29a.75.75 0 1 1 1.06-1.06l4.24 4.24c.3.3.3.77 0 1.06l-4.24 4.24a.75.75 0 0 1-1.06 0Z"
-          clipRule="evenodd"
-        />
-      </svg>
-    </button>
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => toggleOpen(seg, c)}
+                        className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-lg border bg-white hover:bg-zinc-50"
+                        title={isOpen ? "Fechar produtos" : "Abrir produtos"}
+                        aria-expanded={isOpen}
+                      >
+                        <svg
+                          className={`h-6 w-6 text-black transition-transform ${
+                            isOpen ? "rotate-90" : ""
+                          }`}
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M7.21 14.77a.75.75 0 0 1 .02-1.06L10.94 10 7.23 6.29a.75.75 0 1 1 1.06-1.06l4.24 4.24c.3.3.3.77 0 1.06l-4.24 4.24a.75.75 0 0 1-1.06 0Z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      </button>
 
-    <div className="min-w-0">
-      <div className="font-medium">{c.name}</div>
-      <div className="text-sm text-zinc-600">{list.length} produto(s)</div>
-    </div>
-  </div>
+                      <div className="min-w-0">
+                        <div className="font-medium">{c.name}</div>
+                        <div className="text-sm text-zinc-600">
+                          {prods.length} produto(s)
+                        </div>
+                      </div>
+                    </div>
 
-  {/* DIREITA */}
-  <div className="flex flex-wrap items-center gap-2">
-    <div className="flex gap-1">
-      <button
-        onClick={() => moveUp(idx)}
-        disabled={idx === 0}
-        className="rounded-lg border px-2 py-2 text-sm disabled:opacity-40"
-        title="Subir"
-      >
-        ↑
-      </button>
-      <button
-        onClick={() => moveDown(idx)}
-        disabled={idx === cats.length - 1}
-        className="rounded-lg border px-2 py-2 text-sm disabled:opacity-40"
-        title="Descer"
-      >
-        ↓
-      </button>
-    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => moveUp(seg, idxSeg)}
+                          disabled={idxSeg === 0}
+                          className="rounded-lg border px-2 py-2 text-sm disabled:opacity-40"
+                          title="Subir"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          onClick={() => moveDown(seg, idxSeg)}
+                          disabled={idxSeg === list.length - 1}
+                          className="rounded-lg border px-2 py-2 text-sm disabled:opacity-40"
+                          title="Descer"
+                        >
+                          ↓
+                        </button>
+                      </div>
 
                       {editId === c.id ? (
                         <>
@@ -284,7 +338,7 @@ export default function CategoriasPanel({
                           className="rounded-lg bg-black px-3 py-2 text-sm text-white"
                           onClick={() =>
                             onNewProduct
-                              ? onNewProduct(c.name)
+                              ? onNewProduct(c.name, segmentForProduct)
                               : alert("Abra a aba Produtos para cadastrar.")
                           }
                         >
@@ -292,21 +346,19 @@ export default function CategoriasPanel({
                         </button>
                       </div>
 
-                      {list.length === 0 ? (
+                      {prods.length === 0 ? (
                         <div className="p-4 text-sm text-zinc-600">
                           Nenhum produto cadastrado nesta categoria ainda.
                         </div>
                       ) : (
                         <div className="divide-y">
-                          {list.map((pBase) => {
+                          {prods.map((pBase) => {
                             const p = pBase as ProductWithColors;
                             const packInfo = formatPack(
                               p.unit as UnitOption,
                               p.packQty ?? null,
                             );
-                            const colors = Array.isArray(p.colors)
-                              ? p.colors
-                              : [];
+                            const colors = Array.isArray(p.colors) ? p.colors : [];
 
                             return (
                               <div
@@ -366,9 +418,7 @@ export default function CategoriasPanel({
                                           >
                                             <span
                                               className="h-3 w-3 rounded-full ring-1 ring-black/10"
-                                              style={{
-                                                backgroundColor: cc.hex,
-                                              }}
+                                              style={{ backgroundColor: cc.hex }}
                                             />
                                             {cc.name}
                                           </span>
@@ -389,9 +439,7 @@ export default function CategoriasPanel({
                                     onClick={() =>
                                       onEditProduct
                                         ? onEditProduct(p.id)
-                                        : alert(
-                                            "Abra a aba Produtos para editar.",
-                                          )
+                                        : alert("Abra a aba Produtos para editar.")
                                     }
                                     className="rounded-lg border px-3 py-2 text-sm"
                                   >
@@ -416,6 +464,17 @@ export default function CategoriasPanel({
             })}
           </div>
         )}
+      </div>
+    );
+  }
+
+  return (
+    // ✅ AJUSTE: sem scroll lateral + ocupa tela inteira
+    <div className="relative left-1/2 -translate-x-1/2 w-[100dvw] px-4 lg:px-10 overflow-x-hidden">
+      {/* ✅ AJUSTE: não esticar coluna direita quando esquerda expande */}
+      <div className="grid gap-4 lg:grid-cols-2 items-start">
+        {renderColumn("Iluminação", "iluminacao", catsBySeg.ilum)}
+        {renderColumn("Utensílios Domésticos", "utensilios", catsBySeg.uten)}
       </div>
     </div>
   );

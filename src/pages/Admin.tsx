@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "../lib/firebase";
-import { Link } from "react-router-dom"; // ✅ NOVO
+import { Link } from "react-router-dom";
 
 import ProdutosPanel, { type ProductIntent } from "../admin/ProdutosPainel";
 import CategoriasPanel from "../admin/CategoriasiPanel";
@@ -9,7 +9,7 @@ import CategoriasPanel from "../admin/CategoriasiPanel";
 export default function Admin() {
   const [tab, setTab] = useState<"produtos" | "categorias">("categorias");
 
-  // NOVO: intent para abrir modal do ProdutosPanel vindo da aba Categorias
+  // intent para abrir modal do ProdutosPanel vindo da aba Categorias
   const [intent, setIntent] = useState<ProductIntent | null>(null);
 
   function clearIntent() {
@@ -21,8 +21,12 @@ export default function Admin() {
     setTab("produtos");
   }
 
-  function handleNewProduct(categoryName: string) {
-    setIntent({ type: "new", category: categoryName });
+  // ✅ ALTERADO: agora recebe também o segmento vindo do CategoriasPanel
+  function handleNewProduct(
+    categoryName: string,
+    segment?: "iluminacao" | "utensilios",
+  ) {
+    setIntent({ type: "new", category: categoryName, segment });
     setTab("produtos");
   }
 
@@ -36,11 +40,7 @@ export default function Admin() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {/* ✅ NOVO BOTÃO HOME */}
-            <Link
-              to="/"
-              className="rounded-lg border px-4 py-2 text-sm bg-white"
-            >
+            <Link to="/" className="rounded-lg border px-4 py-2 text-sm bg-white">
               Home
             </Link>
 
@@ -77,7 +77,7 @@ export default function Admin() {
           ) : (
             <CategoriasPanel
               onEditProduct={handleEditProduct}
-              onNewProduct={handleNewProduct}
+              onNewProduct={handleNewProduct} // ✅ agora combina (name, segment)
             />
           )}
         </div>
