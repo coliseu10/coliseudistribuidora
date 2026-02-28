@@ -10,25 +10,27 @@ import Admin from "./pages/Admin";
 export default function App() {
   return (
     <BrowserRouter>
-      <main className="min-h-[80vh]">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/admin/login" element={<Login />} />
+      <div className="min-h-screen flex flex-col">
+        <main className="flex-1">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/admin/login" element={<Login />} />
 
-          <Route
-            path="/admin"
-            element={
-              <AdminGate>
-                <Admin />
-              </AdminGate>
-            }
-          />
+            <Route
+              path="/admin"
+              element={
+                <AdminGate>
+                  <Admin />
+                </AdminGate>
+              }
+            />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
 
-      <Footer />
+        <Footer />
+      </div>
     </BrowserRouter>
   );
 }

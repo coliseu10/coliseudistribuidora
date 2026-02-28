@@ -43,13 +43,26 @@ function slugify(s: string) {
 
 const CONTACTS = {
   phones: [
-    { label: "COMERCIAL", value: "(11) 9.1769-0585" },
-    { label: "VENDEDOR MATHEUS", value: "(11) 9.4112-9757" },
-    { label: "VENDEDOR VINICIUS", value: "(11) 9.5080-5053" },
+    {
+      label: "COMERCIAL",
+      value: "(11) 9.1769-0585",
+      phone: "11917690585",
+      kind: "tel" as const,
+    },
+    {
+      label: "VENDEDOR MATHEUS",
+      value: "(11) 9.4112-9757",
+      phone: "11941129757",
+      kind: "whats" as const,
+    },
+    {
+      label: "VENDEDOR VINICIUS",
+      value: "(11) 9.5080-5053",
+      phone: "11950805053",
+      kind: "whats" as const,
+    },
   ],
-  emails: [
-    "coliseu.adm01@gmail.com",
-  ],
+  emails: ["coliseu.adm01@gmail.com"],
   site: "www.distribuidoracoliseu.com.br",
 };
 
@@ -59,7 +72,6 @@ type LightboxState = {
   alt: string;
 };
 
-// ✅ NOVO: segmentos da Home (agora via campo do produto: p.segment)
 type HomeSegment = "iluminacao" | "utensilios";
 type ProductWithSegment = Product & { segment?: HomeSegment | null };
 
@@ -68,10 +80,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
-  // ✅ NOVO: tela de escolha (antes do catálogo)
   const [segment, setSegment] = useState<HomeSegment | null>(null);
 
-  // ✅ referência da faixa de categorias + botão flutuante
   const catBarRef = useRef<HTMLDivElement | null>(null);
   const [showCatFab, setShowCatFab] = useState(false);
   const [catFabOpen, setCatFabOpen] = useState(false);
@@ -81,7 +91,6 @@ export default function Home() {
       try {
         setLoading(true);
         const data = await listProducts();
-        // ✅ mantém lógica, só tipa para segment opcional
         setItems(data.filter((p) => p.active) as ProductWithSegment[]);
       } finally {
         setLoading(false);
@@ -89,7 +98,6 @@ export default function Home() {
     })();
   }, []);
 
-  // ✅ ALTERADO: agora filtra pelo campo do produto (p.segment), não por texto/categoria
   const filtered = useMemo(() => {
     if (!segment) return [];
     return items.filter((p) => p.segment === segment);
@@ -122,7 +130,6 @@ export default function Home() {
     [groups],
   );
 
-  // ✅ mostra o botão flutuante quando a faixa sair de vista
   useEffect(() => {
     const el = catBarRef.current;
     if (!el) return;
@@ -141,7 +148,6 @@ export default function Home() {
     return () => obs.disconnect();
   }, []);
 
-  // ✅ fechar painel flutuante no ESC
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setCatFabOpen(false);
@@ -150,7 +156,6 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [catFabOpen]);
 
-  // ✅ scroll suave apenas para os botões de categoria
   function scrollToCategory(id: string) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -200,7 +205,6 @@ export default function Home() {
     requestAnimationFrame(step);
   }
 
-  // Fechar lightbox no ESC
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (!lightbox) return;
@@ -245,8 +249,10 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-white overflow-x-hidden">
-      <div className="w-full px-4 py-6 lg:px-0">
+    // ✅ TIRADO min-h-screen (quem manda na altura agora é o App com flex)
+    <div className="bg-white overflow-x-hidden">
+      {/* ✅ reduzi um pouco o padding-bottom (não precisa 10 aqui) */}
+      <div className="w-full px-4 py-6 lg:px-0 pb-6">
         {/* TOPO */}
         <div className="bg-white">
           <div className="text-center leading-tight">
@@ -273,29 +279,124 @@ export default function Home() {
               </div>
 
               <div className="mt-3 space-y-2">
-                {CONTACTS.phones.map((p) => (
-                  <div
-                    key={p.label}
-                    className="flex flex-col items-center gap-1 md:flex-row md:items-center md:justify-start md:gap-2"
-                  >
-                    <span className="rounded-full border border-orange-400 px-2 py-0.5 text-xs font-bold text-orange-600">
-                      {p.label}
-                    </span>
-                    <span className="font-semibold">{p.value}</span>
-                  </div>
-                ))}
+                {CONTACTS.phones.map((p) => {
+                  const isWhats = p.kind === "whats";
+
+                  const href =
+                    p.kind === "tel"
+                      ? `tel:+55${p.phone}`
+                      : `https://wa.me/55${p.phone}?text=${encodeURIComponent(
+                          "Olá! Vim pelo catálogo da Coliseu.",
+                        )}`;
+
+                  const title =
+                    p.kind === "tel" ? "Ligar agora" : "Chamar no WhatsApp";
+
+                  return (
+                    <a
+                      key={p.label}
+                      href={href}
+                      target={isWhats ? "_blank" : undefined}
+                      rel={isWhats ? "noreferrer" : undefined}
+                      title={title}
+                      className="flex flex-col items-center gap-1 md:flex-row md:items-center md:justify-start md:gap-2 hover:opacity-90"
+                    >
+                      {/* ✅ label SEM círculo/borda */}
+                      <span className="px-2 py-0.5 text-xs font-bold text-orange-600">
+                        {p.label}
+                      </span>
+
+                      {/* ✅ número SEM underline + com ícone */}
+                      <span className="inline-flex items-center gap-2 font-semibold text-zinc-900">
+                        {isWhats ? (
+                          /* Whats icon */
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-4 w-4 text-emerald-600"
+                            aria-hidden="true"
+                          >
+                            <path
+                              fill="currentColor"
+                              d="M12.04 2C6.54 2 2.1 6.45 2.1 11.95c0 1.93.5 3.73 1.44 5.3L2 22l4.9-1.48a9.86 9.86 0 0 0 5.14 1.43h.01c5.5 0 9.94-4.45 9.94-9.95C21.99 6.45 17.54 2 12.04 2Zm5.77 14.09c-.24.67-1.2 1.23-1.88 1.38-.46.1-1.05.18-3.43-.73-3.04-1.2-5-4.14-5.15-4.33-.15-.2-1.23-1.64-1.23-3.13 0-1.49.78-2.22 1.05-2.52.28-.3.6-.37.8-.37h.58c.18 0 .42-.07.66.5.24.57.8 1.98.87 2.12.07.14.12.32.02.52-.1.2-.15.32-.3.5-.15.18-.32.4-.46.54-.15.15-.3.3-.13.6.18.3.78 1.28 1.67 2.07 1.15 1.02 2.11 1.33 2.41 1.48.3.15.48.13.66-.08.18-.2.76-.88.96-1.18.2-.3.4-.25.67-.15.27.1 1.74.82 2.04.97.3.15.5.22.57.35.07.13.07.74-.17 1.41Z"
+                            />
+                          </svg>
+                        ) : (
+                          /* Phone icon */
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-4 w-4 text-blue-900"
+                            aria-hidden="true"
+                          >
+                            <path
+                              fill="currentColor"
+                              d="M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.01-.24c1.12.37 2.33.57 3.58.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.85 21 3 13.15 3 3a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.46.57 3.58a1 1 0 0 1-.24 1.01l-2.2 2.2Z"
+                            />
+                          </svg>
+                        )}
+
+                        {p.value}
+                      </span>
+                    </a>
+                  );
+                })}
               </div>
 
               <div className="mt-4 space-y-1 text-sm">
                 {CONTACTS.emails.map((e) => (
-                  <div key={e} className="font-bold text-zinc-900 break-all">
-                    {e}
-                  </div>
+                  <a
+                    key={e}
+                    href={`mailto:${e}?subject=${encodeURIComponent(
+                      "Contato - Catálogo Coliseu",
+                    )}`}
+                    className="block font-bold text-zinc-900 break-all hover:opacity-90"
+                    title="Enviar e-mail"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      {/* Email icon */}
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4 text-blue-900"
+                        aria-hidden="true"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Zm0 4-8 5-8-5V6l8 5 8-5v2Z"
+                        />
+                      </svg>
+                      {e}
+                    </span>
+                  </a>
                 ))}
               </div>
 
-              <div className="mt-3 text-sm font-extrabold text-orange-600">
-                {CONTACTS.site}
+              <div className="mt-3 text-sm font-extrabold">
+                <a
+                  href={`https://${CONTACTS.site}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:opacity-90"
+                  title="Abrir site"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    {/* Globe icon */}
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4 text-blue-900"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fill="currentColor"
+                        d="M12 2a10 10 0 1 0 .001 20.001A10 10 0 0 0 12 2Zm7.93 9h-3.21a15.6 15.6 0 0 0-1.1-5.02A8.02 8.02 0 0 1 19.93 11ZM12 4c.78 0 1.95 1.55 2.62 5H9.38C10.05 5.55 11.22 4 12 4ZM4.07 13h3.21c.2 1.77.63 3.48 1.1 5.02A8.02 8.02 0 0 1 4.07 13Zm3.21-2H4.07a8.02 8.02 0 0 1 4.31-5.02A15.6 15.6 0 0 0 7.28 11ZM12 20c-.78 0-1.95-1.55-2.62-5h5.24C13.95 18.45 12.78 20 12 20Zm3.62-1.98c.47-1.54.9-3.25 1.1-5.02h3.21a8.02 8.02 0 0 1-4.31 5.02ZM9.2 13c-.07-.66-.12-1.33-.12-2s.05-1.34.12-2h5.6c.07.66.12 1.33.12 2s-.05 1.34-.12 2H9.2Z"
+                      />
+                    </svg>
+
+                    {/* ✅ texto preto + site laranja */}
+                    <span className="text-zinc-900">
+                      Compre pelo nosso Site:
+                    </span>
+                    <span className="text-orange-600">{CONTACTS.site}</span>
+                  </span>
+                </a>
               </div>
             </div>
 
@@ -338,47 +439,53 @@ export default function Home() {
 
         {/* ✅ TELA DE ESCOLHA (ANTES DO CATÁLOGO) */}
         {!segment && (
-          <div className="mt-10 lg:px-10">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* ESQUERDA: ILUMINAÇÃO */}
-              <button
-                type="button"
-                onClick={() => setSegment("iluminacao")}
-                className="group relative overflow-hidden rounded-2xl border bg-white shadow-sm"
-              >
-                <img
-                  src="/ilumicao.png"
-                  alt="Iluminação"
-                  className="h-72 w-full object-cover transition group-hover:scale-105"
-                  loading="lazy"
-                />
-                <div className="absolute inset-0 bg-black/35" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="rounded-full bg-white/15 px-6 py-3 text-white font-black text-4xl uppercase tracking-wide">
-                    Iluminação
+          <div className="mt-8 lg:px-10">
+            {/* ✅ removi min-height “forçado” gigante; deixa natural */}
+            <div className="flex items-start md:items-center">
+              <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* ESQUERDA: ILUMINAÇÃO */}
+                <button
+                  type="button"
+                  onClick={() => setSegment("iluminacao")}
+                  className="group relative overflow-hidden rounded-2xl border bg-white shadow-sm"
+                >
+                  <img
+                    src="/ilumicao.png"
+                    alt="Iluminação"
+                    // ✅ DIMINUÍ O TAMANHO (antes era 240/320/420/480)
+                    className="w-full object-cover transition group-hover:scale-105 h-[210px] sm:h-[280px] lg:h-[360px] 2xl:h-[400px]"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-0 bg-black/35" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    {/* ✅ opcional: texto um tiquinho menor */}
+                    <div className="rounded-full bg-white/15 px-6 py-3 text-white font-black text-3xl uppercase tracking-wide">
+                      Iluminação
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
 
-              {/* DIREITA: UTENSÍLIOS */}
-              <button
-                type="button"
-                onClick={() => setSegment("utensilios")}
-                className="group relative overflow-hidden rounded-2xl border bg-white shadow-sm"
-              >
-                <img
-                  src="/utensilio.png"
-                  alt="Utensílios Domésticos"
-                  className="h-72 w-full object-cover transition group-hover:scale-105"
-                  loading="lazy"
-                />
-                <div className="absolute inset-0 bg-black/35" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="rounded-full bg-white/15 px-6 py-3 text-white font-black text-4xl uppercase tracking-wide">
-                    Utensílios Domésticos
+                {/* DIREITA: UTENSÍLIOS */}
+                <button
+                  type="button"
+                  onClick={() => setSegment("utensilios")}
+                  className="group relative overflow-hidden rounded-2xl border bg-white shadow-sm"
+                >
+                  <img
+                    src="/utensilio.png"
+                    alt="Utensílios Domésticos"
+                    // ✅ DIMINUÍ O TAMANHO (igual o outro)
+                    className="w-full object-cover transition group-hover:scale-105 h-[210px] sm:h-[280px] lg:h-[360px] 2xl:h-[400px]"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-0 bg-black/35" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="rounded-full bg-white/15 px-6 py-3 text-white font-black text-3xl uppercase tracking-wide">
+                      Utensílios Domésticos
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+              </div>
             </div>
           </div>
         )}
