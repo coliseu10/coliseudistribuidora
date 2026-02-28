@@ -26,28 +26,16 @@ export type ProductDoc = {
   name: string;
   category: string;
   active: boolean;
-
-  // ✅ NOVO: segment (não depende da categoria)
   segment: HomeSegment | null;
-
   sku: string;
   description: string;
-
   unit: "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
   packQty: number | null;
-
   colors: ProductColor[]; // múltiplas cores
-
-  // NOVO: preço em centavos (ex: 5990 = R$ 59,90)
   priceCents: number | null;
-
-  // NOVO: múltiplas imagens (primeira é a principal)
   imageUrls: string[];
-
-  // compat/legado (continua existindo)
   imageUrl: string;
   imagePath: string;
-
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
 };

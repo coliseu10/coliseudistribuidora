@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listProducts } from "../lib/produtos";
 import type { Product } from "../lib/produtos";
 
+// ✅ NOVO (somente para ordenar/exibir conforme painel de categorias)
+import { listCategories, type Category } from "../lib/categorias";
+
 type UnitOption = "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
 
 function formatPack(
@@ -39,6 +42,15 @@ function slugify(s: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+}
+
+// ✅ NOVO: normaliza nome de categoria para comparar com/sem acento e caixa
+function normCat(s: string) {
+  return String(s ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 const CONTACTS = {
@@ -86,15 +98,26 @@ export default function Home() {
   const [showCatFab, setShowCatFab] = useState(false);
   const [catFabOpen, setCatFabOpen] = useState(false);
 
+  // ✅ NOVO: categorias do painel (para ordenar e filtrar na home)
+  const [allCategories, setAllCategories] = useState<Category[]>([]);
+
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
         const data = await listProducts();
-        setItems(data.filter((p) => p.active) as ProductWithSegment[]);
+        setItems(data as ProductWithSegment[]);
       } finally {
         setLoading(false);
       }
+    })();
+  }, []);
+
+  // ✅ NOVO: carrega categorias uma vez (já vem orderBy("order","asc"))
+  useEffect(() => {
+    (async () => {
+      const cats = await listCategories();
+      setAllCategories(cats);
     })();
   }, []);
 
@@ -104,18 +127,43 @@ export default function Home() {
   }, [items, segment]);
 
   const groups = useMemo(() => {
-    const map = new Map<string, ProductWithSegment[]>();
-    for (const p of filtered) {
-      const cat = (p.category ?? "").trim() || "Sem categoria";
-      const prev = map.get(cat) ?? [];
-      prev.push(p);
-      map.set(cat, prev);
+    if (!segment) return [];
+
+    // ✅ Pega somente as categorias cadastradas do segmento atual, na ordem do admin
+    const catsForSegment = allCategories
+      .filter((c) => c.segment === segment)
+      .slice()
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    // mapa: categoria normalizada -> categoria oficial (nome + order)
+    const catIndex = new Map<string, { name: string; order: number }>();
+    for (const c of catsForSegment) {
+      catIndex.set(normCat(c.name), { name: c.name, order: c.order });
     }
 
-    const arr = Array.from(map.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0], "pt-BR"),
-    );
+    // ✅ Agrupa apenas produtos cuja categoria existe no painel
+    const map = new Map<string, ProductWithSegment[]>();
+    for (const p of filtered) {
+      const raw = (p.category ?? "").trim();
+      if (!raw) continue; // sem categoria -> não mostra (pois você quer só as cadastradas)
+      const key = normCat(raw);
 
+      const meta = catIndex.get(key);
+      if (!meta) continue; // categoria não cadastrada -> não mostra
+
+      const catName = meta.name; // usa o nome “oficial” do painel
+      const prev = map.get(catName) ?? [];
+      prev.push(p);
+      map.set(catName, prev);
+    }
+
+    // ✅ Agora monta a lista seguindo EXATAMENTE a ordem do admin
+    const arr = catsForSegment
+      .map((c) => [c.name, map.get(c.name) ?? []] as const)
+      .filter(([, list]) => list.length > 0) // não mostra categoria vazia
+      .map(([name, list]) => [name, list] as [string, ProductWithSegment[]]);
+
+    // mantém sua ordenação dos produtos dentro da categoria
     for (const [, list] of arr) {
       list.sort((a, b) =>
         String(a.name ?? "").localeCompare(String(b.name ?? ""), "pt-BR"),
@@ -123,7 +171,7 @@ export default function Home() {
     }
 
     return arr;
-  }, [filtered]);
+  }, [filtered, segment, allCategories]);
 
   const categoryLinks = useMemo(
     () => groups.map(([cat]) => ({ cat, id: `cat-${slugify(cat)}` })),
@@ -146,7 +194,7 @@ export default function Home() {
 
     obs.observe(el);
     return () => obs.disconnect();
-  }, []);
+  }, [segment]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -184,7 +232,7 @@ export default function Home() {
     const diff = targetY - startY;
     const distance = Math.abs(diff);
 
-    const duration = Math.min(1800, Math.max(900, distance * 0.8));
+    const duration = Math.min(4500, Math.max(1800, distance * 2.0));
 
     const easeInOutCubic = (t: number) =>
       t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -502,7 +550,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setSegment(null)}
-              className="rounded-lg border px-3 py-2 text-sm bg-white"
+              className="rounded-lg border-2 px-3 py-2 text-sm bg-white text-sky-400 font-black tracking-wide border-sky-400 hover:border-sky-600 hover:text-sky-600"
               title="Trocar"
             >
               Trocar categoria
@@ -594,8 +642,17 @@ export default function Home() {
                             return (
                               <article
                                 key={p.id}
-                                className="rounded-2xl bg-white overflow-hidden border-0 shadow-sm"
+                                className={[
+                                  "relative rounded-2xl bg-white overflow-hidden border-0 shadow-sm",
+                                  p.active ? "" : "opacity-60 grayscale",
+                                ].join(" ")}
                               >
+                                {!p.active && (
+                                  <div className="absolute top-3 left-3 z-10 rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">
+                                    Indisponível
+                                  </div>
+                                )}
+
                                 {/* IMAGEM */}
                                 <div className="relative">
                                   {firstImage ? (
@@ -622,23 +679,36 @@ export default function Home() {
                                 {/* CONTEÚDO */}
                                 <div className="p-4">
                                   <div className="min-w-0">
-                                    <div className="font-black leading-snug line-clamp-2">
+                                    {/* Nome */}
+                                    <div className="font-black text-zinc-700 leading-snug line-clamp-2">
                                       {p.name}
                                     </div>
 
-                                    {p.sku ? (
-                                      <div className="mt-1 text-xs text-zinc-600">
-                                        Cód: {p.sku}
+                                    {/* SKU mais visível */}
+                                    {p.sku?.trim() ? (
+                                      <div className="mt-2 inline-flex items-center gap-2">
+                                        <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-black text-blue-900 ring-1 ring-blue-900/10">
+                                          CÓDIGO
+                                        </span>
+                                        <span className="text-xs font-black text-zinc-700 tracking-wide">
+                                          {p.sku}
+                                        </span>
                                       </div>
                                     ) : (
-                                      <div className="mt-1 text-xs text-zinc-600">
+                                      <div className="mt-2 text-xs text-zinc-600">
                                         &nbsp;
                                       </div>
                                     )}
 
+                                    {/* Descrição mais perceptível */}
                                     {p.description ? (
-                                      <div className="mt-2 text-xs text-zinc-700 line-clamp-3">
-                                        {p.description}
+                                      <div className="mt-3 rounded-xl bg-zinc-50 px-3 py-2 transition ">
+                                        <div className="text-[11px] font-black text-zinc-700">
+                                          DESCRIÇÃO
+                                        </div>
+                                        <div className="mt-1 text-xs text-zinc-900 leading-relaxed line-clamp-4">
+                                          {p.description}
+                                        </div>
                                       </div>
                                     ) : (
                                       <div className="mt-2 text-xs text-zinc-700">
@@ -647,63 +717,67 @@ export default function Home() {
                                     )}
                                   </div>
 
-                                  <div className="mt-3 h-px w-full bg-zinc-200" />
-
                                   {/* META */}
                                   <div className="mt-3 grid grid-cols-1 gap-3 text-sm">
-                                    {/* COR */}
-                                    <div className="min-w-0">
-                                      <div className="text-[11px] font-black text-zinc-700">
-                                        COR
-                                      </div>
+                                    {/* Linha de características */}
+                                    <div className="grid grid-cols-1 gap-2">
+                                      {/* COR */}
+                                      <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                                          <div className="text-[11px] font-black text-zinc-700 shrink-0">
+                                            COR:
+                                          </div>
 
-                                      {colors.length ? (
-                                        <div className="mt-2 flex flex-wrap gap-2">
-                                          {colors.slice(0, 6).map((c) => (
-                                            <span
-                                              key={`${p.id}-${c.name}`}
-                                              className="inline-flex items-center gap-2 rounded-full bg-zinc-50 px-3 py-1 text-xs font-semibold"
-                                              title={c.name}
-                                            >
-                                              <span
-                                                className="h-3 w-3 rounded-full ring-1 ring-black/20"
-                                                style={{
-                                                  backgroundColor: c.hex,
-                                                }}
-                                              />
-                                              <span className="truncate max-w-[140px]">
-                                                {c.name}
-                                              </span>
-                                            </span>
-                                          ))}
+                                          {colors.length ? (
+                                            <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                              {colors.slice(0, 6).map((c) => (
+                                                <span
+                                                  key={`${p.id}-${c.name}`}
+                                                  className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold ring-1 ring-zinc-200"
+                                                  title={c.name}
+                                                >
+                                                  <span
+                                                    className="h-3 w-3 rounded-full ring-1 ring-black/20 shrink-0"
+                                                    style={{
+                                                      backgroundColor: c.hex,
+                                                    }}
+                                                  />
+                                                  <span className="whitespace-nowrap">
+                                                    {c.name}
+                                                  </span>
+                                                </span>
+                                              ))}
 
-                                          {colors.length > 6 && (
-                                            <span className="text-xs font-semibold text-zinc-600">
-                                              +{colors.length - 6}
-                                            </span>
+                                              {colors.length > 6 && (
+                                                <span className="text-xs font-semibold text-zinc-600 whitespace-nowrap">
+                                                  +{colors.length - 6}
+                                                </span>
+                                              )}
+                                            </div>
+                                          ) : (
+                                            <div className="text-xs text-zinc-500">
+                                              &nbsp;
+                                            </div>
                                           )}
                                         </div>
-                                      ) : (
-                                        <div className="mt-1 text-xs text-zinc-500">
-                                          &nbsp;
-                                        </div>
-                                      )}
-                                    </div>
-
-                                    {/* Quantidade + Preço */}
-                                    <div className="grid grid-cols-2 gap-3">
-                                      <div className="rounded-xl bg-zinc-50 px-3 py-2">
-                                        <div className="font-semibold leading-tight line-clamp-2">
-                                          {pack || <span>&nbsp;</span>}
-                                        </div>
                                       </div>
 
-                                      <div className="rounded-xl bg-zinc-50 px-3 py-2">
-                                        <div className="flex items-center justify-between">
+                                      {/* EMBALAGEM + PREÇO */}
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div className="rounded-xl bg-zinc-50 px-3 py-2">
                                           <div className="text-[11px] font-black text-zinc-700">
-                                            Preço
+                                            EMBALAGEM
                                           </div>
-                                          <div className="text-base font-black text-zinc-900">
+                                          <div className="mt-1 font-semibold leading-tight line-clamp-2">
+                                            {pack || <span>&nbsp;</span>}
+                                          </div>
+                                        </div>
+
+                                        <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                                          <div className="text-[11px] font-black text-zinc-700">
+                                            PREÇO
+                                          </div>
+                                          <div className="mt-1 text-base font-black text-zinc-800">
                                             {price || <span>&nbsp;</span>}
                                           </div>
                                         </div>
@@ -807,48 +881,116 @@ export default function Home() {
           aria-modal="true"
         >
           <div
-            className="w-full max-w-3xl rounded-2xl bg-white overflow-hidden"
+            className="w-full max-w-4xl rounded-2xl bg-white overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <div className="font-semibold">{lightbox.alt}</div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={prevImage}
-                  disabled={lightbox.index === 0}
-                  className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50"
-                  title="Anterior (←)"
-                >
-                  ←
-                </button>
-                <button
-                  onClick={nextImage}
-                  disabled={lightbox.index >= lightbox.urls.length - 1}
-                  className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50"
-                  title="Próxima (→)"
-                >
-                  →
-                </button>
-                <button
-                  onClick={closeLightbox}
-                  className="rounded-lg border px-3 py-1.5 text-sm"
-                >
-                  Fechar
-                </button>
+            {/* HEADER (sem botão fechar) */}
+            <div className="relative flex items-center justify-center border-b pl-4 pr-20 py-3">
+              <div
+                className="text-center font-black leading-snug break-words line-clamp-2"
+                style={{ fontSize: "clamp(12px, 1.2vw, 16px)" }}
+                title={lightbox.alt}
+              >
+                {lightbox.alt}
               </div>
+
+              {/* contador (mantém simples) */}
+              {lightbox.urls.length > 1 && (
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-zinc-600 whitespace-nowrap">
+                  {lightbox.index + 1} / {lightbox.urls.length}
+                </div>
+              )}
             </div>
 
+            {/* BODY */}
             <div className="p-4 space-y-3">
-              <img
-                src={lightbox.urls[lightbox.index]}
-                alt={lightbox.alt}
-                className="w-full max-h-[70vh] object-contain rounded-lg bg-white"
-              />
+              {/* IMAGEM + SETAS LATERAIS */}
+              <div className="relative">
+                <img
+                  src={lightbox.urls[lightbox.index]}
+                  alt={lightbox.alt}
+                  className="w-full max-h-[70vh] object-contain rounded-lg bg-white"
+                />
 
+                {/* seta esquerda */}
+                {lightbox.urls.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={prevImage}
+                    disabled={lightbox.index === 0}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 p-3 disabled:opacity-30"
+                    title="Anterior"
+                    aria-label="Anterior"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-10 w-10 text-sky-500"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M15 5L8 12l7 7"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                )}
+
+                {/* seta direita */}
+                {lightbox.urls.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={nextImage}
+                    disabled={lightbox.index >= lightbox.urls.length - 1}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-3 disabled:opacity-30"
+                    title="Próxima"
+                    aria-label="Próxima"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-10 w-10 text-sky-500"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M9 5l7 7-7 7"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
+
+              {/* MINIATURAS (só quando tem +1 imagem) */}
               {lightbox.urls.length > 1 && (
-                <div className="text-center text-xs text-zinc-600">
-                  {lightbox.index + 1} / {lightbox.urls.length}
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {lightbox.urls.map((url, i) => (
+                    <button
+                      key={`${url}-${i}`}
+                      type="button"
+                      onClick={() =>
+                        setLightbox((s) => (s ? { ...s, index: i } : s))
+                      }
+                      className={[
+                        "shrink-0 h-16 w-16 rounded-lg border bg-white flex items-center justify-center overflow-hidden",
+                        i === lightbox.index ? "ring-2 ring-blue-500" : "",
+                      ].join(" ")}
+                      title={`Ver imagem ${i + 1}`}
+                    >
+                      <img
+                        src={url}
+                        alt={`${lightbox.alt} - ${i + 1}`}
+                        className="h-full w-full object-contain"
+                        loading="lazy"
+                      />
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
