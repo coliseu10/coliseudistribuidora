@@ -49,7 +49,6 @@ const CONTACTS = {
   ],
   emails: [
     "coliseu.adm01@gmail.com",
-    "distribuidoracoliseu@distribuidoracoliseu.com",
   ],
   site: "www.distribuidoracoliseu.com.br",
 };
