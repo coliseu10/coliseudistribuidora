@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listProducts } from "../lib/produtos";
 import type { Product } from "../lib/produtos";
 
-// ✅ NOVO (somente para ordenar/exibir conforme painel de categorias)
 import { listCategories, type Category } from "../lib/categorias";
 
 type UnitOption = "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
@@ -44,7 +43,6 @@ function slugify(s: string) {
     .replace(/(^-|-$)/g, "");
 }
 
-// ✅ NOVO: normaliza nome de categoria para comparar com/sem acento e caixa
 function normCat(s: string) {
   return String(s ?? "")
     .trim()
@@ -78,14 +76,15 @@ const CONTACTS = {
   site: "www.distribuidoracoliseu.com.br",
 };
 
+type HomeSegment = "iluminacao" | "utensilios";
+type ProductWithSegment = Product & { segment?: HomeSegment | null };
+
 type LightboxState = {
   urls: string[];
   index: number;
   alt: string;
+  product: ProductWithSegment; // infos do card no lightbox
 };
-
-type HomeSegment = "iluminacao" | "utensilios";
-type ProductWithSegment = Product & { segment?: HomeSegment | null };
 
 export default function Home() {
   const [items, setItems] = useState<ProductWithSegment[]>([]);
@@ -98,7 +97,6 @@ export default function Home() {
   const [showCatFab, setShowCatFab] = useState(false);
   const [catFabOpen, setCatFabOpen] = useState(false);
 
-  // ✅ NOVO: categorias do painel (para ordenar e filtrar na home)
   const [allCategories, setAllCategories] = useState<Category[]>([]);
 
   useEffect(() => {
@@ -113,7 +111,6 @@ export default function Home() {
     })();
   }, []);
 
-  // ✅ NOVO: carrega categorias uma vez (já vem orderBy("order","asc"))
   useEffect(() => {
     (async () => {
       const cats = await listCategories();
@@ -129,41 +126,36 @@ export default function Home() {
   const groups = useMemo(() => {
     if (!segment) return [];
 
-    // ✅ Pega somente as categorias cadastradas do segmento atual, na ordem do admin
     const catsForSegment = allCategories
       .filter((c) => c.segment === segment)
       .slice()
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-    // mapa: categoria normalizada -> categoria oficial (nome + order)
     const catIndex = new Map<string, { name: string; order: number }>();
     for (const c of catsForSegment) {
       catIndex.set(normCat(c.name), { name: c.name, order: c.order });
     }
 
-    // ✅ Agrupa apenas produtos cuja categoria existe no painel
     const map = new Map<string, ProductWithSegment[]>();
     for (const p of filtered) {
       const raw = (p.category ?? "").trim();
-      if (!raw) continue; // sem categoria -> não mostra (pois você quer só as cadastradas)
+      if (!raw) continue;
       const key = normCat(raw);
 
       const meta = catIndex.get(key);
-      if (!meta) continue; // categoria não cadastrada -> não mostra
+      if (!meta) continue;
 
-      const catName = meta.name; // usa o nome “oficial” do painel
+      const catName = meta.name;
       const prev = map.get(catName) ?? [];
       prev.push(p);
       map.set(catName, prev);
     }
 
-    // ✅ Agora monta a lista seguindo EXATAMENTE a ordem do admin
     const arr = catsForSegment
       .map((c) => [c.name, map.get(c.name) ?? []] as const)
-      .filter(([, list]) => list.length > 0) // não mostra categoria vazia
+      .filter(([, list]) => list.length > 0)
       .map(([name, list]) => [name, list] as [string, ProductWithSegment[]]);
 
-    // mantém sua ordenação dos produtos dentro da categoria
     for (const [, list] of arr) {
       list.sort((a, b) =>
         String(a.name ?? "").localeCompare(String(b.name ?? ""), "pt-BR"),
@@ -186,8 +178,14 @@ export default function Home() {
     const obs = new IntersectionObserver(
       ([entry]) => {
         const outOfView = !entry.isIntersecting;
-        setShowCatFab(outOfView);
-        if (!outOfView) setCatFabOpen(false);
+
+        // ✅ Só mostra o botão quando a barra já ficou "pra cima" da tela (você passou por ela)
+        const isAboveViewport = entry.boundingClientRect.top < 0;
+
+        const shouldShow = outOfView && isAboveViewport;
+        setShowCatFab(shouldShow);
+
+        if (!shouldShow) setCatFabOpen(false);
       },
       { threshold: 0.15 },
     );
@@ -253,19 +251,7 @@ export default function Home() {
     requestAnimationFrame(step);
   }
 
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (!lightbox) return;
-      if (e.key === "Escape") setLightbox(null);
-      if (e.key === "ArrowRight") nextImage();
-      if (e.key === "ArrowLeft") prevImage();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lightbox]);
-
-  function openLightbox(p: Product) {
+  function openLightbox(p: ProductWithSegment) {
     const urls = getProductImages(p);
     if (!urls.length) return;
 
@@ -273,6 +259,7 @@ export default function Home() {
       urls,
       index: 0,
       alt: p.name || "Imagem do produto",
+      product: p,
     });
   }
 
@@ -297,11 +284,8 @@ export default function Home() {
   }
 
   return (
-    // ✅ TIRADO min-h-screen (quem manda na altura agora é o App com flex)
     <div className="bg-white overflow-x-hidden">
-      {/* ✅ reduzi um pouco o padding-bottom (não precisa 10 aqui) */}
       <div className="w-full px-4 py-6 lg:px-0 pb-6">
-        {/* TOPO */}
         <div className="bg-white">
           <div className="text-center leading-tight">
             <div className="text-4xl font-black tracking-wide">
@@ -309,7 +293,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* LINHAS INFINITAS */}
           <div className="mt-4 space-y-2">
             <div className="relative left-1/2 right-1/2 -mx-[50vw] w-screen">
               <div className="h-2 w-full rounded-full bg-blue-900" />
@@ -320,8 +303,8 @@ export default function Home() {
           </div>
 
           <div className="mt-5 grid gap-6 md:grid-cols-2 lg:grid-cols-3 lg:px-10 items-center">
-            {/* CONTATOS */}
-            <div className="text-center md:text-left">
+            {/* contatos */}
+            <div className="text-left">
               <div className="text-xl font-black text-orange-600">
                 CONTATOS:
               </div>
@@ -347,17 +330,14 @@ export default function Home() {
                       target={isWhats ? "_blank" : undefined}
                       rel={isWhats ? "noreferrer" : undefined}
                       title={title}
-                      className="flex flex-col items-center gap-1 md:flex-row md:items-center md:justify-start md:gap-2 hover:opacity-90"
+                      className="flex flex-row items-center justify-start gap-2 hover:opacity-90"
                     >
-                      {/* ✅ label SEM círculo/borda */}
                       <span className="px-2 py-0.5 text-xs font-bold text-orange-600">
                         {p.label}
                       </span>
 
-                      {/* ✅ número SEM underline + com ícone */}
                       <span className="inline-flex items-center gap-2 font-semibold text-zinc-900">
                         {isWhats ? (
-                          /* Whats icon */
                           <svg
                             viewBox="0 0 24 24"
                             className="h-4 w-4 text-emerald-600"
@@ -369,7 +349,6 @@ export default function Home() {
                             />
                           </svg>
                         ) : (
-                          /* Phone icon */
                           <svg
                             viewBox="0 0 24 24"
                             className="h-4 w-4 text-blue-900"
@@ -400,7 +379,6 @@ export default function Home() {
                     title="Enviar e-mail"
                   >
                     <span className="inline-flex items-center gap-2">
-                      {/* Email icon */}
                       <svg
                         viewBox="0 0 24 24"
                         className="h-4 w-4 text-blue-900"
@@ -425,11 +403,10 @@ export default function Home() {
                   className="hover:opacity-90"
                   title="Abrir site"
                 >
-                  <span className="inline-flex items-center gap-2">
-                    {/* Globe icon */}
+                  <span className="flex items-center gap-2 min-w-0">
                     <svg
                       viewBox="0 0 24 24"
-                      className="h-4 w-4 text-blue-900"
+                      className="h-4 w-4 text-blue-900 shrink-0"
                       aria-hidden="true"
                     >
                       <path
@@ -438,17 +415,19 @@ export default function Home() {
                       />
                     </svg>
 
-                    {/* ✅ texto preto + site laranja */}
-                    <span className="text-zinc-900">
-                      Compre pelo nosso Site:
+                    <span className="text-zinc-900 font-extrabold whitespace-nowrap shrink-0">
+                      Compre pelo site:
                     </span>
-                    <span className="text-orange-600">{CONTACTS.site}</span>
+
+                    <span className="min-w-0 flex-1 text-orange-600 font-black truncate">
+                      {CONTACTS.site}
+                    </span>
                   </span>
                 </a>
               </div>
             </div>
 
-            {/* LOGO NO MEIO */}
+            {/* logo desktop */}
             <div className="hidden lg:flex justify-center">
               <img
                 src="/logo.jpg"
@@ -457,7 +436,7 @@ export default function Home() {
               />
             </div>
 
-            {/* ENTREGA */}
+            {/* entrega */}
             <div className="text-center md:text-right">
               <div className="text-base font-black text-blue-900">
                 ENTREGA PARA TODO TERRITÓRIO
@@ -474,6 +453,7 @@ export default function Home() {
                 ( SP - Capital )
               </div>
 
+              {/* logo mobile */}
               <div className="mt-6 flex justify-center md:justify-end lg:hidden">
                 <img
                   src="/logo.jpg"
@@ -485,13 +465,11 @@ export default function Home() {
           </div>
         </div>
 
-        {/* ✅ TELA DE ESCOLHA (ANTES DO CATÁLOGO) */}
+        {/* escolha do segmento */}
         {!segment && (
           <div className="mt-8 lg:px-10">
-            {/* ✅ removi min-height “forçado” gigante; deixa natural */}
             <div className="flex items-start md:items-center">
               <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* ESQUERDA: ILUMINAÇÃO */}
                 <button
                   type="button"
                   onClick={() => setSegment("iluminacao")}
@@ -500,20 +478,17 @@ export default function Home() {
                   <img
                     src="/ilumicao.png"
                     alt="Iluminação"
-                    // ✅ DIMINUÍ O TAMANHO (antes era 240/320/420/480)
                     className="w-full object-cover transition group-hover:scale-105 h-[210px] sm:h-[280px] lg:h-[360px] 2xl:h-[400px]"
                     loading="lazy"
                   />
                   <div className="absolute inset-0 bg-black/35" />
                   <div className="absolute inset-0 flex items-center justify-center">
-                    {/* ✅ opcional: texto um tiquinho menor */}
                     <div className="rounded-full bg-white/15 px-6 py-3 text-white font-black text-3xl uppercase tracking-wide">
                       Iluminação
                     </div>
                   </div>
                 </button>
 
-                {/* DIREITA: UTENSÍLIOS */}
                 <button
                   type="button"
                   onClick={() => setSegment("utensilios")}
@@ -522,7 +497,6 @@ export default function Home() {
                   <img
                     src="/utensilio.png"
                     alt="Utensílios Domésticos"
-                    // ✅ DIMINUÍ O TAMANHO (igual o outro)
                     className="w-full object-cover transition group-hover:scale-105 h-[210px] sm:h-[280px] lg:h-[360px] 2xl:h-[400px]"
                     loading="lazy"
                   />
@@ -538,7 +512,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* ✅ topo do catálogo + botão trocar */}
         {segment && (
           <div className="mt-8 lg:px-10 flex items-center justify-between gap-3">
             <div className="text-sm font-black text-zinc-800">
@@ -558,10 +531,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* ✅ CATÁLOGO SÓ APARECE DEPOIS QUE ESCOLHER */}
         {segment && (
           <>
-            {/* FAIXA INFINITA */}
             <div
               ref={catBarRef}
               className="relative left-1/2 right-1/2 -mx-[50vw] w-screen mt-8"
@@ -594,7 +565,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* LISTAGEM */}
             <div className="mt-8 lg:px-10">
               {loading ? (
                 <div className="text-sm text-zinc-600">Carregando...</div>
@@ -623,27 +593,16 @@ export default function Home() {
                           {cat}
                         </h2>
 
-                        {/* GRID */}
                         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
                           {list.map((p) => {
-                            const colors = Array.isArray(p.colors)
-                              ? p.colors
-                              : [];
                             const urls = getProductImages(p);
                             const firstImage = urls[0] ?? "";
-                            const pack = formatPack(
-                              p.unit ?? "",
-                              p.packQty ?? null,
-                            );
-                            const price = formatPriceCents(
-                              p.priceCents ?? null,
-                            );
 
                             return (
                               <article
                                 key={p.id}
                                 className={[
-                                  "relative rounded-2xl bg-white overflow-hidden border-0 shadow-sm",
+                                  "relative rounded-xl bg-white overflow-hidden border border-zinc-200 shadow-md transition hover:shadow-lg hover:-translate-y-0.5",
                                   p.active ? "" : "opacity-60 grayscale",
                                 ].join(" ")}
                               >
@@ -653,20 +612,19 @@ export default function Home() {
                                   </div>
                                 )}
 
-                                {/* IMAGEM */}
                                 <div className="relative">
                                   {firstImage ? (
                                     <button
                                       type="button"
                                       onClick={() => openLightbox(p)}
-                                      className="block w-full bg-white"
-                                      title="Abrir imagens"
+                                      className="group block w-full bg-white cursor-zoom-in"
+                                      title="Clique para ampliar"
                                     >
                                       <div className="h-48 w-full bg-white flex items-center justify-center">
                                         <img
                                           src={firstImage}
                                           alt={p.name}
-                                          className="h-full w-full object-contain"
+                                          className="h-full w-full object-contain transition group-hover:opacity-90"
                                           loading="lazy"
                                         />
                                       </div>
@@ -676,15 +634,12 @@ export default function Home() {
                                   )}
                                 </div>
 
-                                {/* CONTEÚDO */}
                                 <div className="p-4">
                                   <div className="min-w-0">
-                                    {/* Nome */}
                                     <div className="font-black text-zinc-700 leading-snug line-clamp-2">
                                       {p.name}
                                     </div>
 
-                                    {/* SKU mais visível */}
                                     {p.sku?.trim() ? (
                                       <div className="mt-2 inline-flex items-center gap-2">
                                         <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-black text-blue-900 ring-1 ring-blue-900/10">
@@ -700,9 +655,8 @@ export default function Home() {
                                       </div>
                                     )}
 
-                                    {/* Descrição mais perceptível */}
                                     {p.description ? (
-                                      <div className="mt-3 rounded-xl bg-zinc-50 px-3 py-2 transition ">
+                                      <div className="mt-3 rounded-xl bg-zinc-50 px-3 py-2 transition">
                                         <div className="text-[11px] font-black text-zinc-700">
                                           DESCRIÇÃO
                                         </div>
@@ -717,20 +671,18 @@ export default function Home() {
                                     )}
                                   </div>
 
-                                  {/* META */}
                                   <div className="mt-3 grid grid-cols-1 gap-3 text-sm">
-                                    {/* Linha de características */}
                                     <div className="grid grid-cols-1 gap-2">
-                                      {/* COR */}
                                       <div className="rounded-xl bg-zinc-50 px-3 py-2">
                                         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                                           <div className="text-[11px] font-black text-zinc-700 shrink-0">
                                             COR:
                                           </div>
 
-                                          {colors.length ? (
+                                          {Array.isArray(p.colors) &&
+                                          p.colors.length ? (
                                             <div className="flex flex-wrap items-center gap-2 min-w-0">
-                                              {colors.slice(0, 6).map((c) => (
+                                              {p.colors.slice(0, 6).map((c) => (
                                                 <span
                                                   key={`${p.id}-${c.name}`}
                                                   className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold ring-1 ring-zinc-200"
@@ -747,12 +699,6 @@ export default function Home() {
                                                   </span>
                                                 </span>
                                               ))}
-
-                                              {colors.length > 6 && (
-                                                <span className="text-xs font-semibold text-zinc-600 whitespace-nowrap">
-                                                  +{colors.length - 6}
-                                                </span>
-                                              )}
                                             </div>
                                           ) : (
                                             <div className="text-xs text-zinc-500">
@@ -762,14 +708,16 @@ export default function Home() {
                                         </div>
                                       </div>
 
-                                      {/* EMBALAGEM + PREÇO */}
                                       <div className="grid grid-cols-2 gap-3">
                                         <div className="rounded-xl bg-zinc-50 px-3 py-2">
                                           <div className="text-[11px] font-black text-zinc-700">
                                             EMBALAGEM
                                           </div>
                                           <div className="mt-1 font-semibold leading-tight line-clamp-2">
-                                            {pack || <span>&nbsp;</span>}
+                                            {formatPack(
+                                              p.unit ?? "",
+                                              p.packQty ?? null,
+                                            ) || <span>&nbsp;</span>}
                                           </div>
                                         </div>
 
@@ -778,7 +726,9 @@ export default function Home() {
                                             PREÇO
                                           </div>
                                           <div className="mt-1 text-base font-black text-zinc-800">
-                                            {price || <span>&nbsp;</span>}
+                                            {formatPriceCents(
+                                              p.priceCents ?? null,
+                                            ) || <span>&nbsp;</span>}
                                           </div>
                                         </div>
                                       </div>
@@ -799,7 +749,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* ✅ BOTÃO FLUTUANTE (SÓ QUANDO TEM CATÁLOGO) */}
+      {/* botao flutuante */}
       {segment && showCatFab && categoryLinks.length > 0 && (
         <>
           {catFabOpen && (
@@ -810,22 +760,18 @@ export default function Home() {
             />
           )}
 
-          <div className="fixed bottom-4 right-4 z-40">
+          <div className="fixed right-4 z-40 bottom-20 sm:bottom-4">
             {!catFabOpen && (
               <button
                 type="button"
                 onClick={() => setCatFabOpen(true)}
-                className="rounded-full px-4 py-3 text-sm font-black text-white shadow-lg border border-white/20"
-                style={{
-                  background:
-                    "linear-gradient(90deg, rgb(11,44,112) 0%, rgb(24,88,180) 45%, rgb(255,122,0) 100%)",
-                }}
+                className="rounded-full px-4 py-3 text-sm font-black shadow-lg border-2 bg-white text-sky-600 border-sky-400 hover:border-sky-600 hover:text-sky-700"
                 aria-expanded={false}
                 aria-controls="cat-fab-panel"
                 title="Categorias"
               >
                 <span className="inline-flex items-center gap-2">
-                  <span className="text-lg leading-none">↕</span>
+                  <span className="text-2xl sm:text-lg leading-none">↕</span>
                   <span className="hidden sm:inline">Categorias</span>
                 </span>
               </button>
@@ -834,16 +780,16 @@ export default function Home() {
             {catFabOpen && (
               <div
                 id="cat-fab-panel"
-                className="w-[min(92vw,420px)] rounded-2xl border bg-white shadow-xl overflow-hidden"
+                className="w-[min(92vw,420px)] rounded-2xl border-2 border-sky-400 bg-white shadow-xl overflow-hidden"
               >
-                <div className="flex items-center justify-between border-b px-4 py-3">
-                  <div className="text-sm font-black text-zinc-900">
+                <div className="flex items-center justify-between border-b border-sky-200 px-4 py-3">
+                  <div className="text-sm font-black text-sky-700">
                     Encontre por categoria
                   </div>
                   <button
                     type="button"
                     onClick={() => setCatFabOpen(false)}
-                    className="rounded-lg border px-2 py-1 text-sm"
+                    className="rounded-lg border-2 border-sky-400 bg-white px-2 py-1 text-sm font-black text-sky-600 hover:border-sky-600 hover:text-sky-700"
                     title="Fechar"
                   >
                     ✕
@@ -859,7 +805,7 @@ export default function Home() {
                         scrollToCategory(id);
                         setCatFabOpen(false);
                       }}
-                      className="rounded-full bg-zinc-100 px-3 py-2 text-xs font-black text-zinc-900 hover:bg-zinc-200"
+                      className="rounded-full bg-sky-50 px-3 py-2 text-xs font-black text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100"
                       title={`Ir para ${cat}`}
                     >
                       {cat}
@@ -872,131 +818,661 @@ export default function Home() {
         </>
       )}
 
-      {/* LIGHTBOX */}
+      {/* lightbox */}
       {lightbox && (
-        <div
-          className="fixed inset-0 z-50 bg-black/60 p-4 flex items-center justify-center"
-          onClick={closeLightbox}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="w-full max-w-4xl rounded-2xl bg-white overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* HEADER (sem botão fechar) */}
-            <div className="relative flex items-center justify-center border-b pl-4 pr-20 py-3">
-              <div
-                className="text-center font-black leading-snug break-words line-clamp-2"
-                style={{ fontSize: "clamp(12px, 1.2vw, 16px)" }}
-                title={lightbox.alt}
-              >
-                {lightbox.alt}
-              </div>
+        <LightboxML
+          lightbox={lightbox}
+          setLightbox={setLightbox}
+          closeLightbox={closeLightbox}
+          nextImage={nextImage}
+          prevImage={prevImage}
+          formatPack={formatPack}
+          formatPriceCents={formatPriceCents}
+        />
+      )}
+    </div>
+  );
+}
 
-              {/* contador (mantém simples) */}
-              {lightbox.urls.length > 1 && (
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-zinc-600 whitespace-nowrap">
-                  {lightbox.index + 1} / {lightbox.urls.length}
-                </div>
-              )}
+/* ===========================
+   ✅ LIGHTBOX
+   - Mobile (<=1023): overlay transparente (glass) ✅
+   - Desktop (>=1024): full screen branco ✅
+=========================== */
+function LightboxML(props: {
+  lightbox: LightboxState;
+  setLightbox: React.Dispatch<React.SetStateAction<LightboxState | null>>;
+  closeLightbox: () => void;
+  nextImage: () => void;
+  prevImage: () => void;
+  formatPack: (
+    unit: UnitOption | null | undefined,
+    packQty: number | null | undefined,
+  ) => string;
+  formatPriceCents: (priceCents: number | null | undefined) => string;
+}) {
+  const {
+    lightbox,
+    setLightbox,
+    closeLightbox,
+    nextImage,
+    prevImage,
+    formatPack,
+    formatPriceCents,
+  } = props;
+
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  const hasMany = lightbox.urls.length > 1;
+  const imgUrl = lightbox.urls[lightbox.index];
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)"); // ✅ sm/md
+    const apply = () => setIsMobile(mq.matches);
+    apply();
+    mq.addEventListener?.("change", apply);
+    return () => mq.removeEventListener?.("change", apply);
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (zoomOpen) setZoomOpen(false);
+        else closeLightbox();
+      }
+      if (!zoomOpen) {
+        if (e.key === "ArrowRight") nextImage();
+        if (e.key === "ArrowLeft") prevImage();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [zoomOpen, closeLightbox, nextImage, prevImage]);
+
+  useEffect(() => {
+    // ✅ trava scroll do body e mantém posição (bom pra mobile/iOS)
+    const scrollY = window.scrollY;
+
+    const body = document.body;
+    const prevOverflow = body.style.overflow;
+    const prevPosition = body.style.position;
+    const prevTop = body.style.top;
+    const prevWidth = body.style.width;
+
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+
+    return () => {
+      body.style.overflow = prevOverflow;
+      body.style.position = prevPosition;
+      body.style.top = prevTop;
+      body.style.width = prevWidth;
+
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+
+  /* MOBILE */
+  const MobilePage = (
+    <div
+      className="fixed inset-0 z-50 bg-black/80 flex flex-col"
+      role="dialog"
+      aria-modal="true"
+    >
+      {/* header */}
+      <div
+        className="sticky top-0 z-10 px-3 pb-3 pt-4 flex items-center justify-between gap-3 bg-black/40 backdrop-blur-md shrink-0"
+        style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}
+      >
+        <div className="min-w-0 pt-3 pl-3 pr-1">
+          <div className="text-white font-black text-sm leading-tight line-clamp-2">
+            {lightbox.alt}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={closeLightbox}
+          className="shrink-0 rounded-lg bg-white/15 px-3 py-1.5 text-white font-black hover:bg-white/25"
+          aria-label="Fechar"
+          title="Fechar"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div
+        className={[
+          "flex-1 min-h-0 overflow-y-auto py-4",
+          "overscroll-contain",
+          "[-webkit-overflow-scrolling:touch]",
+        ].join(" ")}
+        style={{
+          paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))",
+        }}
+      >
+        {/* imagem (painel branco) */}
+        <div className="px-3">
+          <div className="relative w-full rounded-xl border border-white/15 bg-white overflow-hidden shadow-xl">
+            <button
+              type="button"
+              onClick={() => setZoomOpen(true)}
+              className="w-full h-[44vh] min-h-[260px] flex items-center justify-center cursor-zoom-in"
+              title="Clique para ampliar"
+            >
+              <img
+                src={imgUrl}
+                alt={lightbox.alt}
+                className="max-h-full max-w-full object-contain"
+                loading="eager"
+                draggable={false}
+              />
+            </button>
+
+            {hasMany && (
+              <>
+                <button
+                  type="button"
+                  onClick={prevImage}
+                  disabled={lightbox.index === 0}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 z-10 rounded-full bg-white/90 p-2 shadow disabled:opacity-30"
+                  title="Anterior"
+                  aria-label="Anterior"
+                >
+                  <svg viewBox="0 0 24 24" className="h-8 w-8 text-sky-600">
+                    <path
+                      d="M15 5L8 12l7 7"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={nextImage}
+                  disabled={lightbox.index >= lightbox.urls.length - 1}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 z-10 rounded-full bg-white/90 p-2 shadow disabled:opacity-30"
+                  title="Próxima"
+                  aria-label="Próxima"
+                >
+                  <svg viewBox="0 0 24 24" className="h-8 w-8 text-sky-600">
+                    <path
+                      d="M9 5l7 7-7 7"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* miniaturas (mobile) */}
+          {hasMany && (
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              {lightbox.urls.map((u, i) => (
+                <button
+                  key={`${u}-${i}`}
+                  type="button"
+                  onClick={() =>
+                    setLightbox((s) => (s ? { ...s, index: i } : s))
+                  }
+                  className={[
+                    "shrink-0 h-16 w-16 rounded-xl overflow-hidden flex items-center justify-center",
+                    "border-2 bg-white",
+                    i === lightbox.index ? "border-sky-500" : "border-white/30",
+                  ].join(" ")}
+                  title={`Imagem ${i + 1}`}
+                >
+                  <img
+                    src={u}
+                    alt={`${lightbox.alt} - ${i + 1}`}
+                    className="h-full w-full object-contain"
+                    loading="lazy"
+                    draggable={false}
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* infos (glass) */}
+        <div className="px-3 py-4 space-y-3 text-white">
+          {lightbox.product.sku?.trim() ? (
+            <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+              <div className="inline-flex items-center gap-2">
+                <span className="rounded-md bg-white/15 px-2 py-0.5 text-[11px] font-black text-white ring-1 ring-white/10">
+                  CÓDIGO
+                </span>
+                <span className="text-sm font-black text-white">
+                  {lightbox.product.sku}
+                </span>
+              </div>
+            </div>
+          ) : null}
+
+          {lightbox.product.description ? (
+            <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+              <div className="text-[11px] font-black text-white/90">
+                DESCRIÇÃO
+              </div>
+              <div className="mt-1 text-sm text-white leading-relaxed">
+                {lightbox.product.description}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+            <div className="text-[11px] font-black text-white/90">COR</div>
+
+            {Array.isArray(lightbox.product.colors) &&
+            lightbox.product.colors.length ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {lightbox.product.colors.map((c) => (
+                  <span
+                    key={`${lightbox.product.id}-${c.name}`}
+                    className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold ring-1 ring-white/15"
+                    title={c.name}
+                  >
+                    <span
+                      className="h-3 w-3 rounded-full ring-1 ring-black/25 shrink-0"
+                      style={{ backgroundColor: c.hex }}
+                    />
+                    <span className="whitespace-nowrap text-white">
+                      {c.name}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-2 text-xs text-white/70">&nbsp;</div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+              <div className="text-[11px] font-black text-white/90">
+                EMBALAGEM
+              </div>
+              <div className="mt-1 font-semibold text-white leading-tight">
+                {formatPack(
+                  lightbox.product.unit ?? "",
+                  lightbox.product.packQty ?? null,
+                ) || <span>&nbsp;</span>}
+              </div>
             </div>
 
-            {/* BODY */}
-            <div className="p-4 space-y-3">
-              {/* IMAGEM + SETAS LATERAIS */}
-              <div className="relative">
-                <img
-                  src={lightbox.urls[lightbox.index]}
-                  alt={lightbox.alt}
-                  className="w-full max-h-[70vh] object-contain rounded-lg bg-white"
-                />
-
-                {/* seta esquerda */}
-                {lightbox.urls.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={prevImage}
-                    disabled={lightbox.index === 0}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 p-3 disabled:opacity-30"
-                    title="Anterior"
-                    aria-label="Anterior"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="h-10 w-10 text-sky-500"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d="M15 5L8 12l7 7"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
-                )}
-
-                {/* seta direita */}
-                {lightbox.urls.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={nextImage}
-                    disabled={lightbox.index >= lightbox.urls.length - 1}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-3 disabled:opacity-30"
-                    title="Próxima"
-                    aria-label="Próxima"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="h-10 w-10 text-sky-500"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d="M9 5l7 7-7 7"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
+            <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+              <div className="text-[11px] font-black text-white/90">PREÇO</div>
+              <div className="mt-1 text-base font-black text-white">
+                {formatPriceCents(lightbox.product.priceCents ?? null) || (
+                  <span>&nbsp;</span>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
-              {/* MINIATURAS (só quando tem +1 imagem) */}
-              {lightbox.urls.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {lightbox.urls.map((url, i) => (
+  /* DESKTOP */
+  const DesktopModal = (
+    <div
+      className="fixed inset-0 z-50 bg-white"
+      onClick={closeLightbox}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full h-full flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="relative flex items-center justify-center px-12 py-3 shrink-0"
+          style={{
+            background:
+              "linear-gradient(90deg, rgb(11,44,112) 0%, rgb(24,88,180) 45%, rgb(255,122,0) 100%)",
+          }}
+        >
+          <div
+            className="text-white font-black text-center leading-snug line-clamp-2 max-w-full px-2"
+            style={{ fontSize: "clamp(12px, 1.05vw, 16px)" }}
+            title={lightbox.alt}
+          >
+            {lightbox.alt}
+          </div>
+
+          <button
+            type="button"
+            onClick={closeLightbox}
+            className="absolute right-3 top-1/2 -translate-y-1/2 z-10 rounded-lg bg-white/15 px-3 py-1.5 text-white font-black hover:bg-white/25"
+            title="Fechar"
+            aria-label="Fechar"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-0 p-4">
+          <div className="h-full min-h-0 grid grid-cols-1 lg:grid-cols-[92px_1fr_420px] gap-4">
+            {/* miniaturas (desktop) */}
+            <div className="hidden lg:block">
+              {hasMany ? (
+                <div className="h-full overflow-y-auto pr-1 space-y-2">
+                  {lightbox.urls.map((u, i) => (
                     <button
-                      key={`${url}-${i}`}
+                      key={`${u}-${i}`}
                       type="button"
                       onClick={() =>
                         setLightbox((s) => (s ? { ...s, index: i } : s))
                       }
                       className={[
-                        "shrink-0 h-16 w-16 rounded-lg border bg-white flex items-center justify-center overflow-hidden",
-                        i === lightbox.index ? "ring-2 ring-blue-500" : "",
+                        "w-full h-[72px] rounded-xl bg-white overflow-hidden flex items-center justify-center",
+                        "border-2",
+                        i === lightbox.index
+                          ? "border-sky-500"
+                          : "border-zinc-200 hover:border-zinc-300",
                       ].join(" ")}
-                      title={`Ver imagem ${i + 1}`}
+                      title={`Imagem ${i + 1}`}
                     >
                       <img
-                        src={url}
+                        src={u}
                         alt={`${lightbox.alt} - ${i + 1}`}
                         className="h-full w-full object-contain"
                         loading="lazy"
+                        draggable={false}
+                      />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="h-full" />
+              )}
+            </div>
+
+            {/* imagem grande */}
+            <div className="min-h-0 flex flex-col">
+              <div className="relative flex-1 min-h-0 rounded-xl border border-zinc-200 bg-white overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setZoomOpen(true)}
+                  className="w-full h-full flex items-center justify-center cursor-zoom-in"
+                  title="Clique para ampliar"
+                >
+                  <img
+                    src={imgUrl}
+                    alt={lightbox.alt}
+                    className="max-h-full max-w-full object-contain"
+                    loading="eager"
+                    draggable={false}
+                  />
+                </button>
+
+                {hasMany && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={prevImage}
+                      disabled={lightbox.index === 0}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 shadow disabled:opacity-30"
+                      title="Anterior"
+                      aria-label="Anterior"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-8 w-8 text-sky-600">
+                        <path
+                          d="M15 5L8 12l7 7"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={nextImage}
+                      disabled={lightbox.index >= lightbox.urls.length - 1}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 shadow disabled:opacity-30"
+                      title="Próxima"
+                      aria-label="Próxima"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-8 w-8 text-sky-600">
+                        <path
+                          d="M9 5l7 7-7 7"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                  </>
+                )}
+
+                <div className="absolute bottom-3 right-3 rounded-full bg-black/55 px-3 py-1 text-xs font-bold text-white hidden sm:block">
+                  Clique para ampliar
+                </div>
+              </div>
+
+              {/* miniaturas (mobile/tablet dentro do modal) */}
+              {hasMany && (
+                <div className="mt-3 lg:hidden flex gap-2 overflow-x-auto pb-1">
+                  {lightbox.urls.map((u, i) => (
+                    <button
+                      key={`${u}-${i}`}
+                      type="button"
+                      onClick={() =>
+                        setLightbox((s) => (s ? { ...s, index: i } : s))
+                      }
+                      className={[
+                        "shrink-0 h-16 w-16 rounded-xl bg-white overflow-hidden flex items-center justify-center",
+                        "border-2",
+                        i === lightbox.index
+                          ? "border-sky-500"
+                          : "border-zinc-200 hover:border-zinc-300",
+                      ].join(" ")}
+                      title={`Imagem ${i + 1}`}
+                    >
+                      <img
+                        src={u}
+                        alt={`${lightbox.alt} - ${i + 1}`}
+                        className="h-full w-full object-contain"
+                        loading="lazy"
+                        draggable={false}
                       />
                     </button>
                   ))}
                 </div>
               )}
             </div>
+
+            {/* infos (direita) */}
+            <div className="min-h-0">
+              <div className="h-full min-h-0 overflow-y-auto pr-1 space-y-3">
+                <div className="rounded-xl bg-zinc-50 border border-zinc-200 p-4">
+                  {lightbox.product.sku?.trim() ? (
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-black text-blue-900 ring-1 ring-blue-900/10">
+                        CÓDIGO
+                      </span>
+                      <span className="text-xs font-black text-zinc-700 tracking-wide">
+                        {lightbox.product.sku}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  {lightbox.product.description ? (
+                    <div className="mt-3">
+                      <div className="text-[11px] font-black text-zinc-700">
+                        DESCRIÇÃO
+                      </div>
+                      <div className="mt-1 text-sm text-zinc-900 leading-relaxed">
+                        {lightbox.product.description}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
+                      <div className="text-[11px] font-black text-zinc-700">
+                        COR
+                      </div>
+
+                      {Array.isArray(lightbox.product.colors) &&
+                      lightbox.product.colors.length ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {lightbox.product.colors.map((c) => (
+                            <span
+                              key={`${lightbox.product.id}-${c.name}`}
+                              className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold ring-1 ring-zinc-200"
+                              title={c.name}
+                            >
+                              <span
+                                className="h-3 w-3 rounded-full ring-1 ring-black/20 shrink-0"
+                                style={{ backgroundColor: c.hex }}
+                              />
+                              <span className="whitespace-nowrap">
+                                {c.name}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-xs text-zinc-500">&nbsp;</div>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
+                        <div className="text-[11px] font-black text-zinc-700">
+                          EMBALAGEM
+                        </div>
+                        <div className="mt-1 font-semibold leading-tight">
+                          {formatPack(
+                            lightbox.product.unit ?? "",
+                            lightbox.product.packQty ?? null,
+                          ) || <span>&nbsp;</span>}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
+                        <div className="text-[11px] font-black text-zinc-700">
+                          PREÇO
+                        </div>
+                        <div className="mt-1 text-base font-black text-zinc-800">
+                          {formatPriceCents(
+                            lightbox.product.priceCents ?? null,
+                          ) || <span>&nbsp;</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* fim infos */}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {isMobile ? MobilePage : DesktopModal}
+
+      {/* zoom fullscreen (compartilhado) */}
+      {zoomOpen && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/90 p-4 flex items-center justify-center"
+          onClick={() => setZoomOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="relative w-[96vw] h-[92vh] rounded-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setZoomOpen(false)}
+              className="absolute right-3 top-3 z-10 rounded-full bg-white/15 px-4 py-2 text-white font-black hover:bg-white/25"
+              title="Fechar"
+              aria-label="Fechar"
+            >
+              ✕
+            </button>
+
+            <div className="w-full h-full flex items-center justify-center">
+              <img
+                src={imgUrl}
+                alt={lightbox.alt}
+                className="max-h-full max-w-full object-contain"
+                draggable={false}
+              />
+            </div>
+
+            {hasMany && (
+              <>
+                <button
+                  type="button"
+                  onClick={prevImage}
+                  disabled={lightbox.index === 0}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 z-20 rounded-full bg-black/35 p-3 text-white shadow-lg backdrop-blur-sm disabled:opacity-30"
+                  title="Anterior"
+                  aria-label="Anterior"
+                >
+                  <svg viewBox="0 0 24 24" className="h-10 w-10 text-white">
+                    <path
+                      d="M15 5L8 12l7 7"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={nextImage}
+                  disabled={lightbox.index >= lightbox.urls.length - 1}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 z-20 rounded-full bg-black/35 p-3 text-white shadow-lg backdrop-blur-sm disabled:opacity-30"
+                  title="Próxima"
+                  aria-label="Próxima"
+                >
+                  <svg viewBox="0 0 24 24" className="h-10 w-10 text-white">
+                    <path
+                      d="M9 5l7 7-7 7"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
