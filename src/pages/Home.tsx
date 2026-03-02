@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listProducts } from "../lib/produtos";
+import { listProducts, type HomeSegment } from "../lib/produtos";
 import type { Product } from "../lib/produtos";
 
 import { listCategories, type Category } from "../lib/categorias";
@@ -13,7 +13,7 @@ function formatPack(
   const u = (unit ?? "") as UnitOption;
   if (!u) return "";
   if (u === "Unidade") return "Unidade";
-  return packQty && packQty > 0 ? `${u} • ${packQty} peças` : u;
+  return packQty && packQty > 0 ? `${u} • ${packQty}\u00A0UNIDADES` : u;
 }
 
 function formatPriceCents(priceCents: number | null | undefined) {
@@ -26,11 +26,9 @@ function formatPriceCents(priceCents: number | null | undefined) {
   return "";
 }
 
+/** ✅ Agora só usa o formato atual (imageUrls). Remove legado p.imageUrl */
 function getProductImages(p: Product): string[] {
-  const urls = Array.isArray(p.imageUrls) ? p.imageUrls.filter(Boolean) : [];
-  if (urls.length > 0) return urls;
-  if (p.imageUrl) return [p.imageUrl];
-  return [];
+  return Array.isArray(p.imageUrls) ? p.imageUrls.filter(Boolean) : [];
 }
 
 function slugify(s: string) {
@@ -76,18 +74,15 @@ const CONTACTS = {
   site: "www.distribuidoracoliseu.com.br",
 };
 
-type HomeSegment = "iluminacao" | "utensilios";
-type ProductWithSegment = Product & { segment?: HomeSegment | null };
-
 type LightboxState = {
   urls: string[];
   index: number;
   alt: string;
-  product: ProductWithSegment; // infos do card no lightbox
+  product: Product; // infos do card no lightbox
 };
 
 export default function Home() {
-  const [items, setItems] = useState<ProductWithSegment[]>([]);
+  const [items, setItems] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
@@ -104,7 +99,7 @@ export default function Home() {
       try {
         setLoading(true);
         const data = await listProducts();
-        setItems(data as ProductWithSegment[]);
+        setItems(data);
       } finally {
         setLoading(false);
       }
@@ -136,7 +131,7 @@ export default function Home() {
       catIndex.set(normCat(c.name), { name: c.name, order: c.order });
     }
 
-    const map = new Map<string, ProductWithSegment[]>();
+    const map = new Map<string, Product[]>();
     for (const p of filtered) {
       const raw = (p.category ?? "").trim();
       if (!raw) continue;
@@ -154,7 +149,7 @@ export default function Home() {
     const arr = catsForSegment
       .map((c) => [c.name, map.get(c.name) ?? []] as const)
       .filter(([, list]) => list.length > 0)
-      .map(([name, list]) => [name, list] as [string, ProductWithSegment[]]);
+      .map(([name, list]) => [name, list] as [string, Product[]]);
 
     for (const [, list] of arr) {
       list.sort((a, b) =>
@@ -251,7 +246,7 @@ export default function Home() {
     requestAnimationFrame(step);
   }
 
-  function openLightbox(p: ProductWithSegment) {
+  function openLightbox(p: Product) {
     const urls = getProductImages(p);
     if (!urls.length) return;
 
@@ -597,6 +592,9 @@ export default function Home() {
                           {list.map((p) => {
                             const urls = getProductImages(p);
                             const firstImage = urls[0] ?? "";
+                            const brand = String(
+                              (p as Product & { brand?: string }).brand ?? "",
+                            ).trim();
 
                             return (
                               <article
@@ -640,20 +638,32 @@ export default function Home() {
                                       {p.name}
                                     </div>
 
-                                    {p.sku?.trim() ? (
-                                      <div className="mt-2 inline-flex items-center gap-2">
-                                        <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-black text-blue-900 ring-1 ring-blue-900/10">
-                                          CÓDIGO
+                                    {/* ✅ MARCA */}
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                      {brand ? (
+                                        <span className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-black text-zinc-700 ring-1 ring-zinc-700/10">
+                                          <span className="text-[11px]">
+                                            MARCA:
+                                          </span>
+                                          <span className="font-black tracking-wide">
+                                            {brand}
+                                          </span>
                                         </span>
-                                        <span className="text-xs font-black text-zinc-700 tracking-wide">
-                                          {p.sku}
+                                      ) : null}
+
+                                      {p.sku?.trim() ? (
+  <span className="ml-auto inline-flex items-center gap-2 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-black text-blue-900 ring-1 ring-blue-900/10">
+    <span className="text-[11px]">CÓDIGO:</span>
+    <span className="font-black tracking-wide">{p.sku}</span>
+  </span>
+) : null}
+
+                                      {!brand && !p.sku?.trim() ? (
+                                        <span className="text-xs text-zinc-600">
+                                          &nbsp;
                                         </span>
-                                      </div>
-                                    ) : (
-                                      <div className="mt-2 text-xs text-zinc-600">
-                                        &nbsp;
-                                      </div>
-                                    )}
+                                      ) : null}
+                                    </div>
 
                                     {p.description ? (
                                       <div className="mt-3 rounded-xl bg-zinc-50 px-3 py-2 transition">
@@ -867,6 +877,10 @@ function LightboxML(props: {
   const hasMany = lightbox.urls.length > 1;
   const imgUrl = lightbox.urls[lightbox.index];
 
+  const brand = String(
+    (lightbox.product as Product & { brand?: string }).brand ?? "",
+  ).trim();
+
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1023px)"); // ✅ sm/md
     const apply = () => setIsMobile(mq.matches);
@@ -891,7 +905,6 @@ function LightboxML(props: {
   }, [zoomOpen, closeLightbox, nextImage, prevImage]);
 
   useEffect(() => {
-    // ✅ trava scroll do body e mantém posição (bom pra mobile/iOS)
     const scrollY = window.scrollY;
 
     const body = document.body;
@@ -1049,11 +1062,27 @@ function LightboxML(props: {
 
         {/* infos (glass) */}
         <div className="px-3 py-4 space-y-3 text-white">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {brand ? (
+              <div className="w-full rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+                <div className="flex items-center justify-start gap-3">
+                  <span className="rounded-md bg-white/15 px-2 py-0.5 text-[11px] font-black text-white ring-1 ring-white/10">
+                    MARCA:
+                  </span>
+
+                  <span className="text-sm font-black text-white truncate">
+                    {brand}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
           {lightbox.product.sku?.trim() ? (
             <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
               <div className="inline-flex items-center gap-2">
                 <span className="rounded-md bg-white/15 px-2 py-0.5 text-[11px] font-black text-white ring-1 ring-white/10">
-                  CÓDIGO
+                  CÓDIGO:
                 </span>
                 <span className="text-sm font-black text-white">
                   {lightbox.product.sku}
@@ -1146,11 +1175,7 @@ function LightboxML(props: {
               "linear-gradient(90deg, rgb(11,44,112) 0%, rgb(24,88,180) 45%, rgb(255,122,0) 100%)",
           }}
         >
-          <div
-            className="text-white font-black text-center leading-snug line-clamp-2 max-w-full px-2"
-            style={{ fontSize: "clamp(12px, 1.05vw, 16px)" }}
-            title={lightbox.alt}
-          >
+          <div className="text-white font-black text-center leading-snug line-clamp-2 max-w-full px-2">
             {lightbox.alt}
           </div>
 
@@ -1305,10 +1330,22 @@ function LightboxML(props: {
             <div className="min-h-0">
               <div className="h-full min-h-0 overflow-y-auto pr-1 space-y-3">
                 <div className="rounded-xl bg-zinc-50 border border-zinc-200 p-4">
+                  {/* marca no bloco de infos (desktop) */}
+                  {brand ? (
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className="rounded-md bg-white px-2 py-0.5 text-[11px] font-black text-zinc-700 ring-1 ring-zinc-200">
+                        MARCA:
+                      </span>
+                      <span className="text-sm font-black text-zinc-900">
+                        {brand}
+                      </span>
+                    </div>
+                  ) : null}
+
                   {lightbox.product.sku?.trim() ? (
                     <div className="flex items-center gap-2">
                       <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-black text-blue-900 ring-1 ring-blue-900/10">
-                        CÓDIGO
+                        CÓDIGO:
                       </span>
                       <span className="text-xs font-black text-zinc-700 tracking-wide">
                         {lightbox.product.sku}
@@ -1385,7 +1422,6 @@ function LightboxML(props: {
                 </div>
               </div>
             </div>
-            {/* fim infos */}
           </div>
         </div>
       </div>

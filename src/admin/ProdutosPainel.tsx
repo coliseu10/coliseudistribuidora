@@ -9,7 +9,7 @@ import {
   type HomeSegment,
 } from "../lib/produtos";
 import type { Product } from "../lib/produtos";
-import { normalizeImageUrl } from "../lib/normalizeImageUrl";
+import { uploadProductImage, deleteImageByPath } from "../lib/storageUpload";
 
 export type ProductIntent =
   | { type: "edit"; id: string }
@@ -22,28 +22,36 @@ type Props = {
 
 type UnitOption = "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
 
+// ✅ lista única (remote + local) para reorder e preview
+type ImgItem =
+  | { kind: "remote"; url: string; path: string }
+  | { kind: "local"; url: string; file: File };
+
 type FormState = {
   id?: string;
   name: string;
+
+  // ✅ NOVO
+  brand: string;
+
   category: string;
   active: boolean;
-
-  // segmento do produto (para Home)
   segment: HomeSegment | "";
-
   sku: string;
   description: string;
   unit: UnitOption;
-
   packQty: string;
   price: string;
-
   colors: ProductColor[];
+
+  // persistido no Firestore (somente remote)
   imageUrls: string[];
+  imagePaths: string[];
 };
 
 const emptyForm: FormState = {
   name: "",
+  brand: "",
   category: "",
   active: true,
   segment: "",
@@ -54,6 +62,7 @@ const emptyForm: FormState = {
   price: "",
   colors: [],
   imageUrls: [],
+  imagePaths: [],
 };
 
 /* ===================== HELPERS (embalagem/validação) ===================== */
@@ -149,7 +158,15 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
   /* ===================== STATE (imagens) ===================== */
   const [preview, setPreview] = useState<string>("");
-  const [imageDraft, setImageDraft] = useState("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // lista única (remote + local)
+  const [imgItems, setImgItems] = useState<ImgItem[]>([]);
+  const [deletedRemotePaths, setDeletedRemotePaths] = useState<string[]>([]);
+
+  // drag reorder
+  const dragFromRef = useRef<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
   /* ===================== STATE (cores) ===================== */
   const [newColorName, setNewColorName] = useState("");
@@ -188,6 +205,16 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     reload();
   }, []);
 
+  /* ===================== LOCK BODY SCROLL QUANDO MODAL ABERTO ===================== */
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
   /* ===================== DERIVED: cats por segmento ===================== */
   const catsForSegment = useMemo(() => {
     const seg = form.segment;
@@ -195,7 +222,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     return cats
       .filter((c) => c.segment === seg)
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  }, [cats, form.segment]);
+  }, [cats, form.segment, cats]);
 
   /* ===================== INTENT ===================== */
   useEffect(() => {
@@ -217,16 +244,21 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     }
   }, [intent, loading, items, cats, clearIntent]);
 
-  /* ===================== FILTER ===================== */
+  /* ===================== FILTER (inclui marca) ===================== */
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return items;
 
     return items.filter((p) => {
+      const brand = String((p as Product & { brand?: string }).brand ?? "")
+        .toLowerCase()
+        .trim();
+
       const inBase =
         (p.name || "").toLowerCase().includes(s) ||
         (p.category || "").toLowerCase().includes(s) ||
-        (p.sku || "").toLowerCase().includes(s);
+        (p.sku || "").toLowerCase().includes(s) ||
+        brand.includes(s);
 
       const inColors = (p.colors || []).some((c) =>
         (c.name || "").toLowerCase().includes(s),
@@ -245,11 +277,26 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     setEditingColorIndex(null);
   }
 
+  function cleanupLocalPreviews(list: ImgItem[]) {
+    for (const it of list) {
+      if (it.kind === "local") URL.revokeObjectURL(it.url);
+    }
+  }
+
+  function closeModal() {
+    cleanupLocalPreviews(imgItems);
+    setOpen(false);
+    setPreview("");
+    setImgItems([]);
+    setDeletedRemotePaths([]);
+    resetColorDrafts();
+    setPriceTouched(false);
+  }
+
   function openNew(categoryOverride?: string, segmentOverride?: HomeSegment) {
-    const seg = segmentOverride ?? ""; // pode vir vazio
+    const seg = segmentOverride ?? "";
     const segValid = seg === "iluminacao" || seg === "utensilios" ? seg : "";
 
-    // categoria só vai ser definida depois que escolher o segmento
     const next: FormState = {
       ...emptyForm,
       unit: "Unidade",
@@ -257,17 +304,17 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       price: "",
       colors: [],
       imageUrls: [],
+      imagePaths: [],
       active: true,
 
       segment: segValid,
-      category: "", // ✅ começa vazio
+      category: "",
       name: "",
+      brand: "",
       sku: "",
       description: "",
     };
 
-    // se veio categoria no intent, guarda só se o segmento for compatível (vamos checar depois)
-    // (mantém simples: se não tiver segmento ainda, só ignora e deixa escolher)
     if (categoryOverride && segValid) {
       const list = cats
         .filter((c) => c.segment === segValid)
@@ -277,22 +324,20 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     }
 
     setForm(next);
+    setImgItems([]);
+    setDeletedRemotePaths([]);
     setPreview("");
-    setImageDraft("");
     resetColorDrafts();
     setPriceTouched(false);
     setOpen(true);
   }
 
   function openEdit(p: Product) {
-    const rawUrls = p.imageUrls?.length
-      ? p.imageUrls
-      : p.imageUrl
-        ? [p.imageUrl]
-        : [];
-
-    const imageUrls = uniq(
-      rawUrls.map((u) => normalizeImageUrl(u)).filter(Boolean),
+    const urls = uniq(Array.isArray(p.imageUrls) ? p.imageUrls : []);
+    const paths = uniq(
+      Array.isArray((p as Product & { imagePaths?: string[] }).imagePaths)
+        ? ((p as Product & { imagePaths?: string[] }).imagePaths as string[])
+        : [],
     );
 
     const seg = (p as Product & { segment?: HomeSegment | null }).segment ?? "";
@@ -301,28 +346,38 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     const next: FormState = {
       id: p.id,
       name: p.name,
+      brand: String((p as Product & { brand?: string }).brand ?? ""),
       active: p.active,
 
       segment: segValid,
-      category: p.category, // se não existir no segmento, vamos ajustar depois (useEffect)
+      category: p.category,
       sku: p.sku,
       description: p.description,
       unit: p.unit,
       packQty: p.packQty != null ? String(p.packQty) : "",
       price: p.priceCents != null ? formatCentsToBRLInput(p.priceCents) : "",
       colors: Array.isArray(p.colors) ? p.colors : [],
-      imageUrls,
+
+      imageUrls: urls,
+      imagePaths: paths,
     };
 
+    const remoteItems: ImgItem[] = urls.map((u, i) => ({
+      kind: "remote",
+      url: u,
+      path: typeof paths[i] === "string" ? paths[i] : "",
+    }));
+
     setForm(next);
-    setPreview(imageUrls[0] || "");
-    setImageDraft("");
+    setImgItems(remoteItems);
+    setDeletedRemotePaths([]);
+    setPreview(remoteItems[0]?.url || "");
     resetColorDrafts();
     setPriceTouched(false);
     setOpen(true);
   }
 
-  // ✅ NOVO: quando troca segmento, ajusta categoria automaticamente
+  // quando troca segmento, ajusta categoria automaticamente
   useEffect(() => {
     if (!open) return;
 
@@ -336,20 +391,18 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       .filter((c) => c.segment === seg)
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-    // se não tem categoria ainda, define a primeira do segmento (se existir)
     if (!form.category) {
       const first = list[0]?.name ?? "";
       if (first) setForm((s) => ({ ...s, category: first }));
       return;
     }
 
-    // se a categoria atual não existe nesse segmento, troca pra primeira
     const exists = list.some((c) => c.name === form.category);
     if (!exists) {
       const first = list[0]?.name ?? "";
       setForm((s) => ({ ...s, category: first }));
     }
-  }, [form.segment, cats, open]); // intencional
+  }, [form.segment, cats, open, form.category]);
 
   /* ===================== CORES ===================== */
   function startEditColor(idx: number) {
@@ -419,69 +472,105 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     }
   }
 
-  /* ===================== IMAGENS ===================== */
-  function addImageUrl() {
-    const normalized = normalizeImageUrl(imageDraft);
-    if (!normalized) {
-      alert("Cole uma URL válida de imagem.");
-      return;
-    }
+  /* ===================== IMAGENS (seleção local, upload só no salvar) ===================== */
+  function addFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
 
-    setForm((s) => {
-      const next = uniq([...(s.imageUrls || []), normalized]);
-      return { ...s, imageUrls: next };
-    });
+    const locals: ImgItem[] = Array.from(files).map((file) => ({
+      kind: "local",
+      file,
+      url: URL.createObjectURL(file),
+    }));
 
-    setPreview(normalized);
-    setImageDraft("");
+    setImgItems((cur) => [...cur, ...locals]);
+    if (!preview && locals[0]?.url) setPreview(locals[0].url);
   }
 
-  function removeImageUrl(url: string) {
-    setForm((s) => {
-      const next = (s.imageUrls || []).filter((u) => u !== url);
-      if (preview === url) setPreview(next[0] || "");
-      return { ...s, imageUrls: next };
+  function setMainImageByIndex(idx: number) {
+    setImgItems((cur) => {
+      const next = [...cur];
+      if (idx < 0 || idx >= next.length) return cur;
+      const [item] = next.splice(idx, 1);
+      next.unshift(item);
+      return next;
     });
-  }
 
-  function setMainImage(url: string) {
-    setForm((s) => {
-      const rest = (s.imageUrls || []).filter((u) => u !== url);
-      const next = [url, ...rest];
-      return { ...s, imageUrls: next };
-    });
-    setPreview(url);
+    const u = imgItems[idx]?.url;
+    if (u) setPreview(u);
   }
 
   function moveImage(fromIndex: number, toIndex: number) {
-    setForm((s) => {
-      const arr = [...(s.imageUrls || [])];
-      if (fromIndex < 0 || fromIndex >= arr.length) return s;
-      if (toIndex < 0 || toIndex >= arr.length) return s;
-      if (fromIndex === toIndex) return s;
+    setImgItems((cur) => {
+      const next = [...cur];
+      if (fromIndex < 0 || fromIndex >= next.length) return cur;
+      if (toIndex < 0 || toIndex >= next.length) return cur;
+      if (fromIndex === toIndex) return cur;
 
-      const [item] = arr.splice(fromIndex, 1);
-      arr.splice(toIndex, 0, item);
+      const [item] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, item);
 
       const nextPreview =
-        preview && arr.includes(preview) ? preview : arr[0] || "";
+        preview && next.some((x) => x.url === preview)
+          ? preview
+          : next[0]?.url || "";
       setPreview(nextPreview);
 
-      return { ...s, imageUrls: arr };
+      return next;
     });
   }
 
-  function clearImages() {
-    setForm((s) => ({ ...s, imageUrls: [] }));
-    setPreview("");
-    setImageDraft("");
+  function onDragStartThumb(idx: number) {
+    dragFromRef.current = idx;
+  }
+  function onDragEndThumb() {
+    dragFromRef.current = null;
+    setDragOverIdx(null);
+  }
+  function onDragOverThumb(e: React.DragEvent, idx: number) {
+    e.preventDefault();
+    if (dragOverIdx !== idx) setDragOverIdx(idx);
+  }
+  function onDropThumb(e: React.DragEvent, idx: number) {
+    e.preventDefault();
+    const from = dragFromRef.current;
+    dragFromRef.current = null;
+    setDragOverIdx(null);
+    if (from == null || from === idx) return;
+    moveImage(from, idx);
   }
 
-  /* ===================== SAVE ===================== */
+  function removeImageAt(idx: number) {
+    setImgItems((cur) => {
+      const next = [...cur];
+      const item = next[idx];
+      if (!item) return cur;
+
+      if (item.kind === "local") {
+        URL.revokeObjectURL(item.url);
+      } else if (item.path) {
+        setDeletedRemotePaths((prev) => [...prev, item.path]);
+      }
+
+      next.splice(idx, 1);
+
+      const nextPreview =
+        preview === item.url
+          ? next[0]?.url || ""
+          : preview && next.some((x) => x.url === preview)
+            ? preview
+            : next[0]?.url || "";
+
+      setPreview(nextPreview);
+      return next;
+    });
+  }
+
+  /* ===================== SAVE (upload aqui) ===================== */
   async function save() {
     setSaving(true);
     try {
       const name = form.name.trim();
+      const brand = form.brand.trim();
       const category = form.category.trim();
       if (!name || !category) return;
 
@@ -495,22 +584,14 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         return;
       }
 
-      const imageUrls = uniq(
-        (form.imageUrls || []).map((u) => normalizeImageUrl(u)).filter(Boolean),
-      );
-
-      const imageUrl = imageUrls[0] || "";
-
       const mustQty = needsPackQty(form.unit);
       const qty = parsePositiveInt(form.packQty);
-
       if (mustQty && qty == null) {
         alert(
           "Preencha uma quantidade válida (inteiro > 0) para essa embalagem.",
         );
         return;
       }
-
       const packQtyToSave: number | null = mustQty ? qty : null;
 
       const colorsToSave = form.colors
@@ -524,9 +605,29 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         return;
       }
 
+      // 1) transforma a lista atual (remote+local) em remote, subindo só aqui
+      const finalUrls: string[] = [];
+      const finalPaths: string[] = [];
+
+      for (const item of imgItems) {
+        if (item.kind === "remote") {
+          finalUrls.push(item.url);
+          finalPaths.push(item.path);
+          continue;
+        }
+
+        const { url, path } = await uploadProductImage(item.file, "products");
+        finalUrls.push(url);
+        finalPaths.push(path);
+
+        URL.revokeObjectURL(item.url);
+      }
+
+      // 2) grava Firestore
       if (form.id) {
         await updateProduct(form.id, {
           name,
+          brand,
           category,
           active: form.active,
           segment: segmentToSave,
@@ -536,42 +637,56 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
           packQty: packQtyToSave,
           colors: colorsToSave,
           priceCents,
-          imageUrls,
-          imageUrl,
-          imagePath: "",
+          imageUrls: finalUrls,
+          imagePaths: finalPaths,
         });
 
-        setOpen(false);
-        await reload();
-        return;
+        // 3) apaga do storage apenas o que foi removido (remote) durante a edição
+        for (const p of deletedRemotePaths) {
+          if (!p) continue;
+          try {
+            await deleteImageByPath(p);
+          } catch {}
+        }
+      } else {
+        await createProduct({
+          name,
+          brand,
+          category,
+          active: form.active,
+          segment: segmentToSave,
+          sku: form.sku.trim(),
+          description: form.description.trim(),
+          unit: form.unit,
+          packQty: packQtyToSave,
+          colors: colorsToSave,
+          priceCents,
+          imageUrls: finalUrls,
+          imagePaths: finalPaths,
+        });
       }
 
-      await createProduct({
-        name,
-        category,
-        active: form.active,
-        segment: segmentToSave,
-        sku: form.sku.trim(),
-        description: form.description.trim(),
-        unit: form.unit,
-        packQty: packQtyToSave,
-        colors: colorsToSave,
-        priceCents,
-        imageUrls,
-        imageUrl,
-        imagePath: "",
-      });
-
       await reload();
-      setOpen(false);
+      closeModal();
     } finally {
       setSaving(false);
     }
   }
 
-  async function del(id: string) {
+  async function delProduct(p: Product) {
     if (!confirm("Excluir este produto?")) return;
-    await removeProduct(id);
+    const paths = Array.isArray(
+      (p as Product & { imagePaths?: string[] }).imagePaths,
+    )
+      ? ((p as Product & { imagePaths?: string[] }).imagePaths as string[])
+      : [];
+    for (const path of paths) {
+      if (!path) continue;
+      try {
+        await deleteImageByPath(path);
+      } catch {}
+    }
+    await removeProduct(p.id);
     await reload();
   }
 
@@ -581,8 +696,8 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
   const priceOk = parseBRLToCents(form.price) != null;
   const showPriceError = priceTouched && !priceOk;
 
-  // ✅ NOVO: categoria liberada só se segmento selecionado e existir categoria no segmento
-  const segmentChosen = form.segment === "iluminacao" || form.segment === "utensilios";
+  const segmentChosen =
+    form.segment === "iluminacao" || form.segment === "utensilios";
   const categoryEnabled = segmentChosen && catsForSegment.length > 0;
 
   return (
@@ -592,7 +707,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar por nome, categoria, código ou cor..."
+          placeholder="Buscar por nome, categoria, marca, código ou cor..."
           className="w-full sm:w-96 rounded-lg border px-3 py-2 text-sm"
         />
 
@@ -625,9 +740,11 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
           <div className="divide-y">
             {filtered.map((p) => {
               const packInfo = formatPack(p.unit, p.packQty);
-
               const cents = p.priceCents;
-              const firstImage = p.imageUrls?.[0] || p.imageUrl;
+              const firstImage = p.imageUrls?.[0] || "";
+              const brand = String(
+                (p as Product & { brand?: string }).brand ?? "",
+              ).trim();
 
               return (
                 <div
@@ -654,6 +771,12 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                         <span className={categoryBadgeClass()}>
                           {p.category || "—"}
                         </span>
+
+                        {brand ? (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
+                            Marca: {brand}
+                          </span>
+                        ) : null}
 
                         {p.sku ? (
                           <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
@@ -718,7 +841,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                       Editar
                     </button>
                     <button
-                      onClick={() => del(p.id)}
+                      onClick={() => delProduct(p)}
                       className="rounded-lg border px-3 py-2 text-sm text-red-600"
                     >
                       Excluir
@@ -732,245 +855,243 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       </div>
 
       {/* ===================== MODAL ===================== */}
-      {open && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
-          <div className="w-full max-w-[1400px] max-h-[95vh] overflow-y-auto rounded-2xl bg-white border p-6">
-            <div className="text-lg font-semibold">
-              {form.id ? "Editar produto" : "Novo produto"}
-            </div>
+{open && (
+  <div className="fixed inset-0 z-50 bg-black/40">
+    {/* ✅ modal ocupa viewport inteira e organiza em coluna */}
+    <div className="h-full w-full bg-white flex flex-col">
+      {/* ✅ header fixo */}
+      <div className="px-4 py-4 sm:px-6 border-b">
+        <div className="text-lg font-semibold">
+          {form.id ? "Editar produto" : "Novo produto"}
+        </div>
+      </div>
 
-            <div className="mt-4 grid gap-6 lg:grid-cols-[620px_1fr]">
-              {/* ===================== MODAL: IMAGENS ===================== */}
-              <div>
-                <div className="text-sm font-medium">
-                  Imagens (Cloudinary ou Google Imagens)
+      {/* ✅ corpo: no MOBILE o scroll é aqui (um scroll só) */}
+      <div className="flex-1 min-h-0 px-4 py-4 sm:px-6 overflow-y-auto">
+        {/* ✅ 1 coluna no mobile, 2 colunas no desktop */}
+        <div className="min-h-0 grid gap-6 grid-cols-1 lg:grid-cols-[620px_1fr] lg:items-stretch">
+          {/* ===================== MODAL: IMAGENS ===================== */}
+          <div className="min-h-0 flex flex-col lg:h-full lg:overflow-hidden">
+            <div className="text-sm font-medium">IMAGENS</div>
+
+            {/* ✅ preview com altura MENOR e responsiva (não exagera no desktop, não esmaga no mobile) */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={saving}
+              className={`
+                mt-2 w-full rounded-xl border bg-zinc-50 overflow-hidden
+                flex items-center justify-center disabled:opacity-70
+                h-[30vh] sm:h-[36vh] lg:h-[min(42vh,520px)]
+                min-h-[200px] sm:min-h-[240px]
+              `}
+              title="Clique para selecionar imagens"
+            >
+              {preview ? (
+                <img
+                  src={preview}
+                  alt="preview"
+                  className="h-full w-full object-contain"
+                  onError={() => setPreview("")}
+                />
+              ) : (
+                <div className="text-sm text-zinc-500">
+                  Clique aqui para selecionar imagens
+                </div>
+              )}
+            </button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                addFiles(e.target.files);
+                e.currentTarget.value = "";
+              }}
+            />
+
+            {imgItems.length > 0 && (
+              <div className="mt-3 min-h-0 flex flex-col">
+                <div className="text-xs text-zinc-600 mb-2">
+                  {imgItems.length} imagem(ns). A primeira é a <b>principal</b>.
+                  Arraste para reordenar.
                 </div>
 
-                <div className="mt-2 h-[220px] sm:h-[240px] lg:h-[260px] rounded-xl border bg-zinc-50 overflow-hidden flex items-center justify-center">
-                  {preview ? (
-                    <img
-                      src={preview}
-                      alt="preview"
-                      className="h-full w-full object-contain"
-                      onError={() => setPreview("")}
-                    />
-                  ) : (
-                    <div className="text-sm text-zinc-500">
-                      Adicione uma ou mais URLs abaixo
-                    </div>
-                  )}
-                </div>
-
-                <label className="mt-3 block text-sm font-medium">
-                  URL da imagem (você pode adicionar várias)
-                </label>
-
-                <div className="mt-1 flex gap-2">
-                  <input
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                    value={imageDraft}
-                    onChange={(e) => setImageDraft(e.target.value)}
-                    placeholder="Cole o link do Google Imagens ou Cloudinary"
-                  />
-                  <button
-                    type="button"
-                    onClick={addImageUrl}
-                    disabled={!imageDraft.trim()}
-                    className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
-                    title="Adicionar imagem"
-                  >
-                    Adicionar
-                  </button>
-                </div>
-
-                <div className="mt-2 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={clearImages}
-                    className="rounded-lg border px-3 py-2 text-sm"
-                  >
-                    Limpar todas
-                  </button>
-                </div>
-
-                {form.imageUrls.length > 0 && (
-                  <div className="mt-3">
-                    <div className="text-xs text-zinc-600 mb-2">
-                      {form.imageUrls.length} imagem(ns). A primeira é a{" "}
-                      <b>principal</b>.
-                    </div>
-
-                    <div className="mt-2 max-h-[260px] overflow-y-auto pr-1">
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3">
-                        {form.imageUrls.map((url, idx) => (
-                          <div
-                            key={url}
-                            className="rounded-lg border overflow-hidden bg-white"
+                {/* ✅ MOBILE: NÃO cria scroll interno (mostra as thumbs normal)
+                    ✅ LG: scroll interno apenas nas thumbs */}
+                <div className="overflow-visible lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pb-2">
+                    {imgItems.map((item, idx) => {
+                      const url = item.url;
+                      return (
+                        <div
+                          key={`${url}-${idx}`}
+                          className={`rounded-lg border overflow-hidden bg-white ${
+                            dragOverIdx === idx ? "ring-2 ring-black" : ""
+                          }`}
+                          draggable={!saving}
+                          onDragStart={() => onDragStartThumb(idx)}
+                          onDragEnd={onDragEndThumb}
+                          onDragOver={(e) => onDragOverThumb(e, idx)}
+                          onDrop={(e) => onDropThumb(e, idx)}
+                          title="Arraste para reordenar"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setPreview(url)}
+                            className="block w-full aspect-square bg-zinc-50 flex items-center justify-center"
+                            title="Ver no preview"
                           >
+                            <img
+                              src={url}
+                              alt={`img-${idx + 1}`}
+                              className="h-full w-full object-contain"
+                              draggable={false}
+                            />
+                          </button>
+
+                          <div className="p-1 flex items-center justify-between gap-1">
                             <button
                               type="button"
-                              onClick={() => setPreview(url)}
-                              className="block w-full aspect-square bg-zinc-50 flex items-center justify-center"
-                              title="Ver no preview"
+                              className={`text-[11px] rounded px-1.5 py-0.5 border ${
+                                idx === 0
+                                  ? "bg-black text-white border-black"
+                                  : "bg-white"
+                              }`}
+                              onClick={() => setMainImageByIndex(idx)}
+                              disabled={saving}
+                              title="Definir como principal"
                             >
-                              <img
-                                src={url}
-                                alt={`img-${idx + 1}`}
-                                className="h-full w-full object-contain"
-                                onError={() => {
-                                  const bad = url;
-                                  setTimeout(() => removeImageUrl(bad), 0);
-                                }}
-                              />
+                              Principal
                             </button>
 
-                            <div className="p-1 flex items-center justify-between gap-1">
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => moveImage(idx, idx - 1)}
-                                  disabled={idx === 0}
-                                  className="text-[11px] rounded px-1.5 py-0.5 border disabled:opacity-40"
-                                  title="Mover para esquerda"
-                                >
-                                  ←
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => moveImage(idx, idx + 1)}
-                                  disabled={idx === form.imageUrls.length - 1}
-                                  className="text-[11px] rounded px-1.5 py-0.5 border disabled:opacity-40"
-                                  title="Mover para direita"
-                                >
-                                  →
-                                </button>
-
-                                <button
-                                  type="button"
-                                  className={`text-[11px] rounded px-1.5 py-0.5 border ${
-                                    idx === 0
-                                      ? "bg-black text-white border-black"
-                                      : "bg-white"
-                                  }`}
-                                  onClick={() => setMainImage(url)}
-                                  title="Definir como principal"
-                                >
-                                  {idx === 0 ? "Principal" : "Principal"}
-                                </button>
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() => removeImageUrl(url)}
-                                className="text-[11px] rounded px-1.5 py-0.5 border text-red-600"
-                                title="Remover"
-                              >
-                                Remover
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeImageAt(idx)}
+                              disabled={saving}
+                              className="text-[11px] rounded px-1.5 py-0.5 border text-red-600 disabled:opacity-40"
+                              title="Remover (só efetiva ao salvar)"
+                            >
+                              Remover
+                            </button>
                           </div>
-                        ))}
-                      </div>
-                    </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
+                </div>
+              </div>
+            )}
+          </div>
 
-                <div className="mt-2 text-xs text-zinc-500">
-                  Dica: Copie endereço de imagem e cole.
+          {/* ===================== MODAL: CAMPOS ===================== */}
+          {/* ✅ MOBILE: sem scroll interno (já rola no corpo)
+              ✅ LG: scroll interno só dos campos, footer fixo */}
+          <div className="min-h-0 flex flex-col lg:h-full">
+            <div className="space-y-4 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+              <div>
+                <label className="block text-sm font-medium">Nome</label>
+                <input
+                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, name: e.target.value }))
+                  }
+                  placeholder="Ex: Spot Quadrado de Embutir..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium">Marca</label>
+                <input
+                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                  value={form.brand}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, brand: e.target.value }))
+                  }
+                  placeholder="Ex: Tramontina, Philips..."
+                />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <label className="block text-sm font-medium">Segmento</label>
+                  <select
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white"
+                    value={form.segment}
+                    onChange={(e) => {
+                      const seg = e.target.value as FormState["segment"];
+                      setForm((s) => ({
+                        ...s,
+                        segment: seg,
+                        category: "",
+                      }));
+                    }}
+                  >
+                    <option value="">— selecione —</option>
+                    <option value="iluminacao">Iluminação</option>
+                    <option value="utensilios">Utensílios Domésticos</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium">Categoria</label>
+                  <select
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white disabled:bg-zinc-50 disabled:text-zinc-500"
+                    value={form.category}
+                    onChange={(e) =>
+                      setForm((s) => ({ ...s, category: e.target.value }))
+                    }
+                    disabled={!categoryEnabled}
+                    title={
+                      !segmentChosen
+                        ? "Selecione o segmento primeiro"
+                        : catsForSegment.length === 0
+                          ? "Não há categorias cadastradas neste segmento"
+                          : ""
+                    }
+                  >
+                    {!segmentChosen ? (
+                      <option value="">Selecione o segmento</option>
+                    ) : catsForSegment.length === 0 ? (
+                      <option value="">Nenhuma categoria neste segmento</option>
+                    ) : (
+                      catsForSegment.map((c) => (
+                        <option key={c.id} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium">Embalagem</label>
+                  <select
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white"
+                    value={form.unit}
+                    onChange={(e) => {
+                      const unit = e.target.value as UnitOption;
+                      setForm((s) => ({
+                        ...s,
+                        unit,
+                        packQty: needsPackQty(unit) ? s.packQty : "",
+                      }));
+                    }}
+                  >
+                    <option value="Unidade">Unidade</option>
+                    <option value="Kit">Kit</option>
+                    <option value="Meia Caixa">Meia Caixa</option>
+                    <option value="Caixa Fechada">Caixa Fechada</option>
+                    <option value="">—</option>
+                  </select>
                 </div>
               </div>
 
-              {/* ===================== MODAL: CAMPOS ===================== */}
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium">Nome</label>
-                  <input
-                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                    value={form.name}
-                    onChange={(e) =>
-                      setForm((s) => ({ ...s, name: e.target.value }))
-                    }
-                    placeholder="Ex: Spot Quadrado de Embutir..."
-                  />
-                </div>
-
-                {/* ✅ Segmento primeiro, depois Categoria */}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <div>
-                    <label className="block text-sm font-medium">Segmento</label>
-                    <select
-                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white"
-                      value={form.segment}
-                      onChange={(e) => {
-                        const seg = e.target.value as FormState["segment"];
-                        setForm((s) => ({
-                          ...s,
-                          segment: seg,
-                          category: "", // ✅ limpa para recalcular pela lista do segmento
-                        }));
-                      }}
-                    >
-                      <option value="">— selecione —</option>
-                      <option value="iluminacao">Iluminação</option>
-                      <option value="utensilios">Utensílios Domésticos</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium">Categoria</label>
-                    <select
-                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white disabled:bg-zinc-50 disabled:text-zinc-500"
-                      value={form.category}
-                      onChange={(e) =>
-                        setForm((s) => ({ ...s, category: e.target.value }))
-                      }
-                      disabled={!categoryEnabled}
-                      title={
-                        !segmentChosen
-                          ? "Selecione o segmento primeiro"
-                          : catsForSegment.length === 0
-                            ? "Não há categorias cadastradas neste segmento"
-                            : ""
-                      }
-                    >
-                      {!segmentChosen ? (
-                        <option value="">Selecione o segmento</option>
-                      ) : catsForSegment.length === 0 ? (
-                        <option value="">Nenhuma categoria neste segmento</option>
-                      ) : (
-                        catsForSegment.map((c) => (
-                          <option key={c.id} value={c.name}>
-                            {c.name}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium">Embalagem</label>
-                    <select
-                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white"
-                      value={form.unit}
-                      onChange={(e) => {
-                        const unit = e.target.value as UnitOption;
-                        setForm((s) => ({
-                          ...s,
-                          unit,
-                          packQty: needsPackQty(unit) ? s.packQty : "",
-                        }));
-                      }}
-                    >
-                      <option value="Unidade">Unidade</option>
-                      <option value="Kit">Kit</option>
-                      <option value="Meia Caixa">Meia Caixa</option>
-                      <option value="Caixa Fechada">Caixa Fechada</option>
-                      <option value="">—</option>
-                    </select>
-                  </div>
-                </div>
-
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium">Valor (R$)</label>
                   <input
@@ -995,114 +1116,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                   )}
                 </div>
 
-                {mustQty && (
-                  <div>
-                    <label className="block text-sm font-medium">
-                      {packQtyLabel(form.unit)}
-                    </label>
-                    <input
-                      className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
-                        qtyOk ? "" : "border-red-500"
-                      }`}
-                      value={form.packQty}
-                      onChange={(e) =>
-                        setForm((s) => ({
-                          ...s,
-                          packQty: digitsOnly(e.target.value),
-                        }))
-                      }
-                      placeholder="Ex: 10"
-                      inputMode="numeric"
-                    />
-                    {!qtyOk && (
-                      <div className="mt-1 text-xs text-red-600">
-                        Informe um número inteiro maior que 0.
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium">
-                    Cores do produto
-                  </label>
-
-                  <div className="mt-1 flex flex-col sm:flex-row gap-2">
-                    <input
-                      ref={colorNameRef}
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
-                      value={newColorName}
-                      onChange={(e) => setNewColorName(e.target.value)}
-                      placeholder="Ex: Branco, Preto Fosco, Dourado..."
-                    />
-
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={newColorHex}
-                        onChange={(e) => setNewColorHex(e.target.value)}
-                        className="h-10 w-14 rounded-lg border bg-white p-1"
-                        aria-label="Escolher cor"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={upsertColor}
-                        disabled={!normalizeColorName(newColorName)}
-                        className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
-                      >
-                        {editingColorIndex == null ? "Adicionar" : "Salvar"}
-                      </button>
-
-                      {editingColorIndex != null && (
-                        <button
-                          type="button"
-                          onClick={cancelEditColor}
-                          className="rounded-lg border px-3 py-2 text-sm"
-                        >
-                          Cancelar
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {form.colors.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {form.colors.map((c, idx) => (
-                        <span
-                          key={`${c.name}-${idx}`}
-                          className="inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs bg-white ring-1 ring-zinc-200"
-                        >
-                          <span
-                            className="h-3 w-3 rounded-full ring-1 ring-black/10"
-                            style={{ backgroundColor: c.hex }}
-                            title={c.hex}
-                          />
-                          {c.name}
-
-                          <button
-                            type="button"
-                            onClick={() => startEditColor(idx)}
-                            className="ml-1 rounded-full px-2 py-0.5 text-xs border"
-                            title="Editar cor"
-                          >
-                            Editar
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => removeColorByIndex(idx)}
-                            className="ml-1 rounded-full px-2 py-0.5 text-xs border"
-                            title="Remover cor"
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
                 <div>
                   <label className="block text-sm font-medium">
                     Código/Referência (SKU)
@@ -1116,35 +1129,144 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                     placeholder="Ex: 4500"
                   />
                 </div>
+              </div>
 
+              {mustQty && (
                 <div>
-                  <label className="block text-sm font-medium">Descrição</label>
-                  <textarea
-                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm min-h-[96px]"
-                    value={form.description}
+                  <label className="block text-sm font-medium">
+                    {packQtyLabel(form.unit)}
+                  </label>
+                  <input
+                    className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                      qtyOk ? "" : "border-red-500"
+                    }`}
+                    value={form.packQty}
                     onChange={(e) =>
-                      setForm((s) => ({ ...s, description: e.target.value }))
+                      setForm((s) => ({
+                        ...s,
+                        packQty: digitsOnly(e.target.value),
+                      }))
                     }
-                    placeholder="Ex: Não acompanha lâmpadas..."
+                    placeholder="Ex: 10"
+                    inputMode="numeric"
                   />
+                  {!qtyOk && (
+                    <div className="mt-1 text-xs text-red-600">
+                      Informe um número inteiro maior que 0.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* CORES */}
+              <div>
+                <label className="block text-sm font-medium">Cores do produto</label>
+
+                <div className="mt-1 flex flex-col sm:flex-row gap-2">
+                  <input
+                    ref={colorNameRef}
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    value={newColorName}
+                    onChange={(e) => setNewColorName(e.target.value)}
+                    placeholder="Ex: Branco, Preto Fosco, Dourado..."
+                  />
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={newColorHex}
+                      onChange={(e) => setNewColorHex(e.target.value)}
+                      className="h-10 w-14 rounded-lg border bg-white p-1"
+                      aria-label="Escolher cor"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={upsertColor}
+                      disabled={!normalizeColorName(newColorName)}
+                      className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+                    >
+                      {editingColorIndex == null ? "Adicionar" : "Salvar"}
+                    </button>
+
+                    {editingColorIndex != null && (
+                      <button
+                        type="button"
+                        onClick={cancelEditColor}
+                        className="rounded-lg border px-3 py-2 text-sm"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.active}
-                    onChange={(e) =>
-                      setForm((s) => ({ ...s, active: e.target.checked }))
-                    }
-                  />
-                  Ativo
-                </label>
+                {form.colors.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {form.colors.map((c, idx) => (
+                      <span
+                        key={`${c.name}-${idx}`}
+                        className="inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs bg-white ring-1 ring-zinc-200"
+                      >
+                        <span
+                          className="h-3 w-3 rounded-full ring-1 ring-black/10"
+                          style={{ backgroundColor: c.hex }}
+                          title={c.hex}
+                        />
+                        {c.name}
+
+                        <button
+                          type="button"
+                          onClick={() => startEditColor(idx)}
+                          className="ml-1 rounded-full px-2 py-0.5 text-xs border"
+                          title="Editar cor"
+                        >
+                          Editar
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => removeColorByIndex(idx)}
+                          className="ml-1 rounded-full px-2 py-0.5 text-xs border"
+                          title="Remover cor"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
+
+              <div>
+                <label className="block text-sm font-medium">Descrição</label>
+                <textarea
+                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm min-h-[120px] lg:min-h-[140px]"
+                  value={form.description}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, description: e.target.value }))
+                  }
+                  placeholder="Ex: Não acompanha lâmpadas..."
+                />
+              </div>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.active}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, active: e.target.checked }))
+                  }
+                />
+                Ativo
+              </label>
             </div>
 
-            <div className="mt-6 flex flex-col sm:flex-row justify-end gap-2">
+            {/* ✅ footer: no mobile fica normal (acompanhando scroll do corpo)
+                ✅ no lg continua “colado” embaixo */}
+            <div className="border-t pt-3 mt-3 flex flex-col sm:flex-row justify-end gap-2 lg:mt-3">
               <button
-                onClick={() => setOpen(false)}
+                onClick={closeModal}
                 className="rounded-lg border px-4 py-2 text-sm"
                 disabled={saving}
               >
@@ -1155,8 +1277,8 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                 disabled={
                   saving ||
                   !form.name.trim() ||
-                  !form.segment || // exige segmento
-                  !form.category.trim() || // exige categoria válida
+                  !form.segment ||
+                  !form.category.trim() ||
                   !qtyOk ||
                   !priceOk
                 }
@@ -1167,7 +1289,10 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
             </div>
           </div>
         </div>
-      )}
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }
