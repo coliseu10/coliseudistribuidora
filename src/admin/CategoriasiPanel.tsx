@@ -358,7 +358,14 @@ export default function CategoriasPanel({ onEditProduct, onNewProduct }: Props) 
                               p.unit as UnitOption,
                               p.packQty ?? null,
                             );
-                            const colors = Array.isArray(p.colors) ? p.colors : [];
+                            const colors = Array.isArray(p.colors)
+                              ? p.colors
+                              : [];
+
+                            // ✅ NOVO: marca (badge igual no painel de produtos)
+                            const brand = String(
+                              (p as Product & { brand?: string }).brand ?? "",
+                            ).trim();
 
                             return (
                               <div
@@ -367,9 +374,9 @@ export default function CategoriasPanel({ onEditProduct, onNewProduct }: Props) 
                               >
                                 <div className="flex items-start gap-3">
                                   <div className="h-12 w-12 rounded-lg bg-zinc-100 overflow-hidden flex items-center justify-center shrink-0">
-                                    {p.imageUrl ? (
+                                    {p.imageUrls?.[0] ? (
                                       <img
-                                        src={p.imageUrl}
+                                        src={p.imageUrls[0]}
                                         alt={p.name}
                                         className="h-full w-full object-cover"
                                       />
@@ -387,6 +394,13 @@ export default function CategoriasPanel({ onEditProduct, onNewProduct }: Props) 
                                       <span className={categoryBadgeClass()}>
                                         {p.category || "—"}
                                       </span>
+
+                                      {brand ? (
+                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
+                                          Marca: {brand}
+                                        </span>
+                                      ) : null}
+
                                       {p.sku ? (
                                         <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
                                           Cod: {p.sku}
@@ -418,7 +432,9 @@ export default function CategoriasPanel({ onEditProduct, onNewProduct }: Props) 
                                           >
                                             <span
                                               className="h-3 w-3 rounded-full ring-1 ring-black/10"
-                                              style={{ backgroundColor: cc.hex }}
+                                              style={{
+                                                backgroundColor: cc.hex,
+                                              }}
                                             />
                                             {cc.name}
                                           </span>
@@ -439,7 +455,9 @@ export default function CategoriasPanel({ onEditProduct, onNewProduct }: Props) 
                                     onClick={() =>
                                       onEditProduct
                                         ? onEditProduct(p.id)
-                                        : alert("Abra a aba Produtos para editar.")
+                                        : alert(
+                                            "Abra a aba Produtos para editar.",
+                                          )
                                     }
                                     className="rounded-lg border px-3 py-2 text-sm"
                                   >
