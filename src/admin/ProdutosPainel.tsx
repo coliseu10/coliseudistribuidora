@@ -623,7 +623,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         URL.revokeObjectURL(item.url);
       }
 
-      // 2) grava Firestore
       if (form.id) {
         await updateProduct(form.id, {
           name,
@@ -641,12 +640,12 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
           imagePaths: finalPaths,
         });
 
-        // 3) apaga do storage apenas o que foi removido (remote) durante a edição
         for (const p of deletedRemotePaths) {
-          if (!p) continue;
           try {
             await deleteImageByPath(p);
-          } catch {}
+          } catch (e) {
+            void e;
+          }
         }
       } else {
         await createProduct({
@@ -684,7 +683,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       if (!path) continue;
       try {
         await deleteImageByPath(path);
-      } catch {}
+      } catch (e) {
+        void e;
+      }
     }
     await removeProduct(p.id);
     await reload();
@@ -855,444 +856,463 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       </div>
 
       {/* ===================== MODAL ===================== */}
-{open && (
-  <div className="fixed inset-0 z-50 bg-black/40">
-    {/* ✅ modal ocupa viewport inteira e organiza em coluna */}
-    <div className="h-full w-full bg-white flex flex-col">
-      {/* ✅ header fixo */}
-      <div className="px-4 py-4 sm:px-6 border-b">
-        <div className="text-lg font-semibold">
-          {form.id ? "Editar produto" : "Novo produto"}
-        </div>
-      </div>
+      {open && (
+        <div className="fixed inset-0 z-50 bg-black/40">
+          {/* ✅ modal ocupa viewport inteira e organiza em coluna */}
+          <div className="h-full w-full bg-white flex flex-col">
+            {/* ✅ header fixo */}
+            <div className="px-4 py-4 sm:px-6 border-b">
+              <div className="text-lg font-semibold">
+                {form.id ? "Editar produto" : "Novo produto"}
+              </div>
+            </div>
 
-      {/* ✅ corpo: no MOBILE o scroll é aqui (um scroll só) */}
-      <div className="flex-1 min-h-0 px-4 py-4 sm:px-6 overflow-y-auto">
-        {/* ✅ 1 coluna no mobile, 2 colunas no desktop */}
-        <div className="min-h-0 grid gap-6 grid-cols-1 lg:grid-cols-[620px_1fr] lg:items-stretch">
-          {/* ===================== MODAL: IMAGENS ===================== */}
-          <div className="min-h-0 flex flex-col lg:h-full lg:overflow-hidden">
-            <div className="text-sm font-medium">IMAGENS</div>
+            {/* ✅ corpo: no MOBILE o scroll é aqui (um scroll só) */}
+            <div className="flex-1 min-h-0 px-4 py-4 sm:px-6 overflow-y-auto">
+              {/* ✅ 1 coluna no mobile, 2 colunas no desktop */}
+              <div className="min-h-0 grid gap-6 grid-cols-1 lg:grid-cols-[620px_1fr] lg:items-stretch">
+                {/* ===================== MODAL: IMAGENS ===================== */}
+                <div className="min-h-0 flex flex-col lg:h-full lg:overflow-hidden">
+                  <div className="text-sm font-medium">IMAGENS</div>
 
-            {/* ✅ preview com altura MENOR e responsiva (não exagera no desktop, não esmaga no mobile) */}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={saving}
-              className={`
+                  {/* ✅ preview com altura MENOR e responsiva (não exagera no desktop, não esmaga no mobile) */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={saving}
+                    className={`
                 mt-2 w-full rounded-xl border bg-zinc-50 overflow-hidden
                 flex items-center justify-center disabled:opacity-70
                 h-[30vh] sm:h-[36vh] lg:h-[min(42vh,520px)]
                 min-h-[200px] sm:min-h-[240px]
               `}
-              title="Clique para selecionar imagens"
-            >
-              {preview ? (
-                <img
-                  src={preview}
-                  alt="preview"
-                  className="h-full w-full object-contain"
-                  onError={() => setPreview("")}
-                />
-              ) : (
-                <div className="text-sm text-zinc-500">
-                  Clique aqui para selecionar imagens
-                </div>
-              )}
-            </button>
+                    title="Clique para selecionar imagens"
+                  >
+                    {preview ? (
+                      <img
+                        src={preview}
+                        alt="preview"
+                        className="h-full w-full object-contain"
+                        onError={() => setPreview("")}
+                      />
+                    ) : (
+                      <div className="text-sm text-zinc-500">
+                        Clique aqui para selecionar imagens
+                      </div>
+                    )}
+                  </button>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                addFiles(e.target.files);
-                e.currentTarget.value = "";
-              }}
-            />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      addFiles(e.target.files);
+                      e.currentTarget.value = "";
+                    }}
+                  />
 
-            {imgItems.length > 0 && (
-              <div className="mt-3 min-h-0 flex flex-col">
-                <div className="text-xs text-zinc-600 mb-2">
-                  {imgItems.length} imagem(ns). A primeira é a <b>principal</b>.
-                  Arraste para reordenar.
-                </div>
+                  {imgItems.length > 0 && (
+                    <div className="mt-3 min-h-0 flex flex-col">
+                      <div className="text-xs text-zinc-600 mb-2">
+                        {imgItems.length} imagem(ns). A primeira é a{" "}
+                        <b>principal</b>. Arraste para reordenar.
+                      </div>
 
-                {/* ✅ MOBILE: NÃO cria scroll interno (mostra as thumbs normal)
+                      {/* ✅ MOBILE: NÃO cria scroll interno (mostra as thumbs normal)
                     ✅ LG: scroll interno apenas nas thumbs */}
-                <div className="overflow-visible lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pb-2">
-                    {imgItems.map((item, idx) => {
-                      const url = item.url;
-                      return (
-                        <div
-                          key={`${url}-${idx}`}
-                          className={`rounded-lg border overflow-hidden bg-white ${
-                            dragOverIdx === idx ? "ring-2 ring-black" : ""
-                          }`}
-                          draggable={!saving}
-                          onDragStart={() => onDragStartThumb(idx)}
-                          onDragEnd={onDragEndThumb}
-                          onDragOver={(e) => onDragOverThumb(e, idx)}
-                          onDrop={(e) => onDropThumb(e, idx)}
-                          title="Arraste para reordenar"
+                      <div className="overflow-visible lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pb-2">
+                          {imgItems.map((item, idx) => {
+                            const url = item.url;
+                            return (
+                              <div
+                                key={`${url}-${idx}`}
+                                className={`rounded-lg border overflow-hidden bg-white ${
+                                  dragOverIdx === idx ? "ring-2 ring-black" : ""
+                                }`}
+                                draggable={!saving}
+                                onDragStart={() => onDragStartThumb(idx)}
+                                onDragEnd={onDragEndThumb}
+                                onDragOver={(e) => onDragOverThumb(e, idx)}
+                                onDrop={(e) => onDropThumb(e, idx)}
+                                title="Arraste para reordenar"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => setPreview(url)}
+                                  className="block w-full aspect-square bg-zinc-50 flex items-center justify-center"
+                                  title="Ver no preview"
+                                >
+                                  <img
+                                    src={url}
+                                    alt={`img-${idx + 1}`}
+                                    className="h-full w-full object-contain"
+                                    draggable={false}
+                                  />
+                                </button>
+
+                                <div className="p-1 flex items-center justify-between gap-1">
+                                  <button
+                                    type="button"
+                                    className={`text-[11px] rounded px-1.5 py-0.5 border ${
+                                      idx === 0
+                                        ? "bg-black text-white border-black"
+                                        : "bg-white"
+                                    }`}
+                                    onClick={() => setMainImageByIndex(idx)}
+                                    disabled={saving}
+                                    title="Definir como principal"
+                                  >
+                                    Principal
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => removeImageAt(idx)}
+                                    disabled={saving}
+                                    className="text-[11px] rounded px-1.5 py-0.5 border text-red-600 disabled:opacity-40"
+                                    title="Remover (só efetiva ao salvar)"
+                                  >
+                                    Remover
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ===================== MODAL: CAMPOS ===================== */}
+                {/* ✅ MOBILE: sem scroll interno (já rola no corpo)
+              ✅ LG: scroll interno só dos campos, footer fixo */}
+                <div className="min-h-0 flex flex-col lg:h-full">
+                  <div className="space-y-4 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+                    <div>
+                      <label className="block text-sm font-medium">Nome</label>
+                      <input
+                        className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                        value={form.name}
+                        onChange={(e) =>
+                          setForm((s) => ({ ...s, name: e.target.value }))
+                        }
+                        placeholder="Ex: Spot Quadrado de Embutir..."
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium">Marca</label>
+                      <input
+                        className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                        value={form.brand}
+                        onChange={(e) =>
+                          setForm((s) => ({ ...s, brand: e.target.value }))
+                        }
+                        placeholder="Ex: Tramontina, Philips..."
+                      />
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <div>
+                        <label className="block text-sm font-medium">
+                          Segmento
+                        </label>
+                        <select
+                          className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white"
+                          value={form.segment}
+                          onChange={(e) => {
+                            const seg = e.target.value as FormState["segment"];
+                            setForm((s) => ({
+                              ...s,
+                              segment: seg,
+                              category: "",
+                            }));
+                          }}
                         >
+                          <option value="">— selecione —</option>
+                          <option value="iluminacao">Iluminação</option>
+                          <option value="utensilios">
+                            Utensílios Domésticos
+                          </option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium">
+                          Categoria
+                        </label>
+                        <select
+                          className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white disabled:bg-zinc-50 disabled:text-zinc-500"
+                          value={form.category}
+                          onChange={(e) =>
+                            setForm((s) => ({ ...s, category: e.target.value }))
+                          }
+                          disabled={!categoryEnabled}
+                          title={
+                            !segmentChosen
+                              ? "Selecione o segmento primeiro"
+                              : catsForSegment.length === 0
+                                ? "Não há categorias cadastradas neste segmento"
+                                : ""
+                          }
+                        >
+                          {!segmentChosen ? (
+                            <option value="">Selecione o segmento</option>
+                          ) : catsForSegment.length === 0 ? (
+                            <option value="">
+                              Nenhuma categoria neste segmento
+                            </option>
+                          ) : (
+                            catsForSegment.map((c) => (
+                              <option key={c.id} value={c.name}>
+                                {c.name}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium">
+                          Embalagem
+                        </label>
+                        <select
+                          className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white"
+                          value={form.unit}
+                          onChange={(e) => {
+                            const unit = e.target.value as UnitOption;
+                            setForm((s) => ({
+                              ...s,
+                              unit,
+                              packQty: needsPackQty(unit) ? s.packQty : "",
+                            }));
+                          }}
+                        >
+                          <option value="Unidade">Unidade</option>
+                          <option value="Kit">Kit</option>
+                          <option value="Meia Caixa">Meia Caixa</option>
+                          <option value="Caixa Fechada">Caixa Fechada</option>
+                          <option value="">—</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium">
+                          Valor (R$)
+                        </label>
+                        <input
+                          className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                            showPriceError ? "border-red-500" : ""
+                          }`}
+                          value={form.price}
+                          onChange={(e) => {
+                            setPriceTouched(true);
+                            const d = digitsOnly(e.target.value);
+                            const formatted = formatBRLInputFromDigits(d);
+                            setForm((s) => ({ ...s, price: formatted }));
+                          }}
+                          onBlur={() => setPriceTouched(true)}
+                          placeholder="Ex: 59,90"
+                          inputMode="numeric"
+                        />
+                        {showPriceError && (
+                          <div className="mt-1 text-xs text-red-600">
+                            Informe um valor válido (ex: 59,90).
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium">
+                          Código/Referência (SKU)
+                        </label>
+                        <input
+                          className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                          value={form.sku}
+                          onChange={(e) =>
+                            setForm((s) => ({ ...s, sku: e.target.value }))
+                          }
+                          placeholder="Ex: 4500"
+                        />
+                      </div>
+                    </div>
+
+                    {mustQty && (
+                      <div>
+                        <label className="block text-sm font-medium">
+                          {packQtyLabel(form.unit)}
+                        </label>
+                        <input
+                          className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                            qtyOk ? "" : "border-red-500"
+                          }`}
+                          value={form.packQty}
+                          onChange={(e) =>
+                            setForm((s) => ({
+                              ...s,
+                              packQty: digitsOnly(e.target.value),
+                            }))
+                          }
+                          placeholder="Ex: 10"
+                          inputMode="numeric"
+                        />
+                        {!qtyOk && (
+                          <div className="mt-1 text-xs text-red-600">
+                            Informe um número inteiro maior que 0.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* CORES */}
+                    <div>
+                      <label className="block text-sm font-medium">
+                        Cores do produto
+                      </label>
+
+                      <div className="mt-1 flex flex-col sm:flex-row gap-2">
+                        <input
+                          ref={colorNameRef}
+                          className="w-full rounded-lg border px-3 py-2 text-sm"
+                          value={newColorName}
+                          onChange={(e) => setNewColorName(e.target.value)}
+                          placeholder="Ex: Branco, Preto Fosco, Dourado..."
+                        />
+
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={newColorHex}
+                            onChange={(e) => setNewColorHex(e.target.value)}
+                            className="h-10 w-14 rounded-lg border bg-white p-1"
+                            aria-label="Escolher cor"
+                          />
+
                           <button
                             type="button"
-                            onClick={() => setPreview(url)}
-                            className="block w-full aspect-square bg-zinc-50 flex items-center justify-center"
-                            title="Ver no preview"
+                            onClick={upsertColor}
+                            disabled={!normalizeColorName(newColorName)}
+                            className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
                           >
-                            <img
-                              src={url}
-                              alt={`img-${idx + 1}`}
-                              className="h-full w-full object-contain"
-                              draggable={false}
-                            />
+                            {editingColorIndex == null ? "Adicionar" : "Salvar"}
                           </button>
 
-                          <div className="p-1 flex items-center justify-between gap-1">
+                          {editingColorIndex != null && (
                             <button
                               type="button"
-                              className={`text-[11px] rounded px-1.5 py-0.5 border ${
-                                idx === 0
-                                  ? "bg-black text-white border-black"
-                                  : "bg-white"
-                              }`}
-                              onClick={() => setMainImageByIndex(idx)}
-                              disabled={saving}
-                              title="Definir como principal"
+                              onClick={cancelEditColor}
+                              className="rounded-lg border px-3 py-2 text-sm"
                             >
-                              Principal
+                              Cancelar
                             </button>
-
-                            <button
-                              type="button"
-                              onClick={() => removeImageAt(idx)}
-                              disabled={saving}
-                              className="text-[11px] rounded px-1.5 py-0.5 border text-red-600 disabled:opacity-40"
-                              title="Remover (só efetiva ao salvar)"
-                            >
-                              Remover
-                            </button>
-                          </div>
+                          )}
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+                      </div>
 
-          {/* ===================== MODAL: CAMPOS ===================== */}
-          {/* ✅ MOBILE: sem scroll interno (já rola no corpo)
-              ✅ LG: scroll interno só dos campos, footer fixo */}
-          <div className="min-h-0 flex flex-col lg:h-full">
-            <div className="space-y-4 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-              <div>
-                <label className="block text-sm font-medium">Nome</label>
-                <input
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                  value={form.name}
-                  onChange={(e) =>
-                    setForm((s) => ({ ...s, name: e.target.value }))
-                  }
-                  placeholder="Ex: Spot Quadrado de Embutir..."
-                />
-              </div>
+                      {form.colors.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {form.colors.map((c, idx) => (
+                            <span
+                              key={`${c.name}-${idx}`}
+                              className="inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs bg-white ring-1 ring-zinc-200"
+                            >
+                              <span
+                                className="h-3 w-3 rounded-full ring-1 ring-black/10"
+                                style={{ backgroundColor: c.hex }}
+                                title={c.hex}
+                              />
+                              {c.name}
 
-              <div>
-                <label className="block text-sm font-medium">Marca</label>
-                <input
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                  value={form.brand}
-                  onChange={(e) =>
-                    setForm((s) => ({ ...s, brand: e.target.value }))
-                  }
-                  placeholder="Ex: Tramontina, Philips..."
-                />
-              </div>
+                              <button
+                                type="button"
+                                onClick={() => startEditColor(idx)}
+                                className="ml-1 rounded-full px-2 py-0.5 text-xs border"
+                                title="Editar cor"
+                              >
+                                Editar
+                              </button>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <div>
-                  <label className="block text-sm font-medium">Segmento</label>
-                  <select
-                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white"
-                    value={form.segment}
-                    onChange={(e) => {
-                      const seg = e.target.value as FormState["segment"];
-                      setForm((s) => ({
-                        ...s,
-                        segment: seg,
-                        category: "",
-                      }));
-                    }}
-                  >
-                    <option value="">— selecione —</option>
-                    <option value="iluminacao">Iluminação</option>
-                    <option value="utensilios">Utensílios Domésticos</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium">Categoria</label>
-                  <select
-                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white disabled:bg-zinc-50 disabled:text-zinc-500"
-                    value={form.category}
-                    onChange={(e) =>
-                      setForm((s) => ({ ...s, category: e.target.value }))
-                    }
-                    disabled={!categoryEnabled}
-                    title={
-                      !segmentChosen
-                        ? "Selecione o segmento primeiro"
-                        : catsForSegment.length === 0
-                          ? "Não há categorias cadastradas neste segmento"
-                          : ""
-                    }
-                  >
-                    {!segmentChosen ? (
-                      <option value="">Selecione o segmento</option>
-                    ) : catsForSegment.length === 0 ? (
-                      <option value="">Nenhuma categoria neste segmento</option>
-                    ) : (
-                      catsForSegment.map((c) => (
-                        <option key={c.id} value={c.name}>
-                          {c.name}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium">Embalagem</label>
-                  <select
-                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white"
-                    value={form.unit}
-                    onChange={(e) => {
-                      const unit = e.target.value as UnitOption;
-                      setForm((s) => ({
-                        ...s,
-                        unit,
-                        packQty: needsPackQty(unit) ? s.packQty : "",
-                      }));
-                    }}
-                  >
-                    <option value="Unidade">Unidade</option>
-                    <option value="Kit">Kit</option>
-                    <option value="Meia Caixa">Meia Caixa</option>
-                    <option value="Caixa Fechada">Caixa Fechada</option>
-                    <option value="">—</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium">Valor (R$)</label>
-                  <input
-                    className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
-                      showPriceError ? "border-red-500" : ""
-                    }`}
-                    value={form.price}
-                    onChange={(e) => {
-                      setPriceTouched(true);
-                      const d = digitsOnly(e.target.value);
-                      const formatted = formatBRLInputFromDigits(d);
-                      setForm((s) => ({ ...s, price: formatted }));
-                    }}
-                    onBlur={() => setPriceTouched(true)}
-                    placeholder="Ex: 59,90"
-                    inputMode="numeric"
-                  />
-                  {showPriceError && (
-                    <div className="mt-1 text-xs text-red-600">
-                      Informe um valor válido (ex: 59,90).
+                              <button
+                                type="button"
+                                onClick={() => removeColorByIndex(idx)}
+                                className="ml-1 rounded-full px-2 py-0.5 text-xs border"
+                                title="Remover cor"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
 
-                <div>
-                  <label className="block text-sm font-medium">
-                    Código/Referência (SKU)
-                  </label>
-                  <input
-                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                    value={form.sku}
-                    onChange={(e) =>
-                      setForm((s) => ({ ...s, sku: e.target.value }))
-                    }
-                    placeholder="Ex: 4500"
-                  />
-                </div>
-              </div>
-
-              {mustQty && (
-                <div>
-                  <label className="block text-sm font-medium">
-                    {packQtyLabel(form.unit)}
-                  </label>
-                  <input
-                    className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
-                      qtyOk ? "" : "border-red-500"
-                    }`}
-                    value={form.packQty}
-                    onChange={(e) =>
-                      setForm((s) => ({
-                        ...s,
-                        packQty: digitsOnly(e.target.value),
-                      }))
-                    }
-                    placeholder="Ex: 10"
-                    inputMode="numeric"
-                  />
-                  {!qtyOk && (
-                    <div className="mt-1 text-xs text-red-600">
-                      Informe um número inteiro maior que 0.
+                    <div>
+                      <label className="block text-sm font-medium">
+                        Descrição
+                      </label>
+                      <textarea
+                        className="mt-1 w-full rounded-lg border px-3 py-2 text-sm min-h-[120px] lg:min-h-[140px]"
+                        value={form.description}
+                        onChange={(e) =>
+                          setForm((s) => ({
+                            ...s,
+                            description: e.target.value,
+                          }))
+                        }
+                        placeholder="Ex: Não acompanha lâmpadas..."
+                      />
                     </div>
-                  )}
-                </div>
-              )}
 
-              {/* CORES */}
-              <div>
-                <label className="block text-sm font-medium">Cores do produto</label>
-
-                <div className="mt-1 flex flex-col sm:flex-row gap-2">
-                  <input
-                    ref={colorNameRef}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                    value={newColorName}
-                    onChange={(e) => setNewColorName(e.target.value)}
-                    placeholder="Ex: Branco, Preto Fosco, Dourado..."
-                  />
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={newColorHex}
-                      onChange={(e) => setNewColorHex(e.target.value)}
-                      className="h-10 w-14 rounded-lg border bg-white p-1"
-                      aria-label="Escolher cor"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={upsertColor}
-                      disabled={!normalizeColorName(newColorName)}
-                      className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
-                    >
-                      {editingColorIndex == null ? "Adicionar" : "Salvar"}
-                    </button>
-
-                    {editingColorIndex != null && (
-                      <button
-                        type="button"
-                        onClick={cancelEditColor}
-                        className="rounded-lg border px-3 py-2 text-sm"
-                      >
-                        Cancelar
-                      </button>
-                    )}
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={form.active}
+                        onChange={(e) =>
+                          setForm((s) => ({ ...s, active: e.target.checked }))
+                        }
+                      />
+                      Ativo
+                    </label>
                   </div>
-                </div>
 
-                {form.colors.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {form.colors.map((c, idx) => (
-                      <span
-                        key={`${c.name}-${idx}`}
-                        className="inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs bg-white ring-1 ring-zinc-200"
-                      >
-                        <span
-                          className="h-3 w-3 rounded-full ring-1 ring-black/10"
-                          style={{ backgroundColor: c.hex }}
-                          title={c.hex}
-                        />
-                        {c.name}
-
-                        <button
-                          type="button"
-                          onClick={() => startEditColor(idx)}
-                          className="ml-1 rounded-full px-2 py-0.5 text-xs border"
-                          title="Editar cor"
-                        >
-                          Editar
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => removeColorByIndex(idx)}
-                          className="ml-1 rounded-full px-2 py-0.5 text-xs border"
-                          title="Remover cor"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium">Descrição</label>
-                <textarea
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm min-h-[120px] lg:min-h-[140px]"
-                  value={form.description}
-                  onChange={(e) =>
-                    setForm((s) => ({ ...s, description: e.target.value }))
-                  }
-                  placeholder="Ex: Não acompanha lâmpadas..."
-                />
-              </div>
-
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.active}
-                  onChange={(e) =>
-                    setForm((s) => ({ ...s, active: e.target.checked }))
-                  }
-                />
-                Ativo
-              </label>
-            </div>
-
-            {/* ✅ footer: no mobile fica normal (acompanhando scroll do corpo)
+                  {/* ✅ footer: no mobile fica normal (acompanhando scroll do corpo)
                 ✅ no lg continua “colado” embaixo */}
-            <div className="border-t pt-3 mt-3 flex flex-col sm:flex-row justify-end gap-2 lg:mt-3">
-              <button
-                onClick={closeModal}
-                className="rounded-lg border px-4 py-2 text-sm"
-                disabled={saving}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={save}
-                disabled={
-                  saving ||
-                  !form.name.trim() ||
-                  !form.segment ||
-                  !form.category.trim() ||
-                  !qtyOk ||
-                  !priceOk
-                }
-                className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-              >
-                {saving ? "Salvando..." : "Salvar"}
-              </button>
+                  <div className="border-t pt-3 mt-3 flex flex-col sm:flex-row justify-end gap-2 lg:mt-3">
+                    <button
+                      onClick={closeModal}
+                      className="rounded-lg border px-4 py-2 text-sm"
+                      disabled={saving}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={save}
+                      disabled={
+                        saving ||
+                        !form.name.trim() ||
+                        !form.segment ||
+                        !form.category.trim() ||
+                        !qtyOk ||
+                        !priceOk
+                      }
+                      className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+                    >
+                      {saving ? "Salvando..." : "Salvar"}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
-  </div>
-)}
+      )}
     </div>
   );
 }
