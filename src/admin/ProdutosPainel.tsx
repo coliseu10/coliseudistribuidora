@@ -22,7 +22,6 @@ type Props = {
 
 type UnitOption = "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
 
-// ✅ lista única (remote + local) para reorder e preview
 type ImgItem =
   | { kind: "remote"; url: string; path: string }
   | { kind: "local"; url: string; file: File };
@@ -30,10 +29,7 @@ type ImgItem =
 type FormState = {
   id?: string;
   name: string;
-
-  // ✅ NOVO
   brand: string;
-
   category: string;
   active: boolean;
   segment: HomeSegment | "";
@@ -42,9 +38,8 @@ type FormState = {
   unit: UnitOption;
   packQty: string;
   price: string;
+  packPrice: string;
   colors: ProductColor[];
-
-  // persistido no Firestore (somente remote)
   imageUrls: string[];
   imagePaths: string[];
 };
@@ -60,6 +55,7 @@ const emptyForm: FormState = {
   unit: "Unidade",
   packQty: "",
   price: "",
+  packPrice: "",
   colors: [],
   imageUrls: [],
   imagePaths: [],
@@ -74,6 +70,12 @@ function packQtyLabel(unit: UnitOption) {
   if (unit === "Meia Caixa") return "Quantidade da Meia Caixa (peças)";
   if (unit === "Caixa Fechada") return "Quantidade da Caixa Fechada (peças)";
   return "Quantidade";
+}
+function packPriceLabel(unit: UnitOption) {
+  if (unit === "Kit") return "Valor total do Kit (R$)";
+  if (unit === "Meia Caixa") return "Valor total da Meia Caixa (R$)";
+  if (unit === "Caixa Fechada") return "Valor total da Caixa Fechada (R$)";
+  return "Valor total (R$)";
 }
 function parsePositiveInt(value: string): number | null {
   const v = value.trim();
@@ -177,6 +179,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
   /* ===================== STATE (validações) ===================== */
   const [priceTouched, setPriceTouched] = useState(false);
+  const [packPriceTouched, setPackPriceTouched] = useState(false);
 
   /* ===================== FOCUS (input cor) ===================== */
   const colorNameRef = useRef<HTMLInputElement | null>(null);
@@ -291,6 +294,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     setDeletedRemotePaths([]);
     resetColorDrafts();
     setPriceTouched(false);
+    setPackPriceTouched(false);
   }
 
   function openNew(categoryOverride?: string, segmentOverride?: HomeSegment) {
@@ -302,6 +306,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       unit: "Unidade",
       packQty: "",
       price: "",
+      packPrice: "",
       colors: [],
       imageUrls: [],
       imagePaths: [],
@@ -329,6 +334,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     setPreview("");
     resetColorDrafts();
     setPriceTouched(false);
+    setPackPriceTouched(false);
     setOpen(true);
   }
 
@@ -343,12 +349,17 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     const seg = (p as Product & { segment?: HomeSegment | null }).segment ?? "";
     const segValid = seg === "iluminacao" || seg === "utensilios" ? seg : "";
 
+    const packPriceCents =
+      typeof (p as Product & { packPriceCents?: number | null })
+        .packPriceCents === "number"
+        ? (p as Product & { packPriceCents?: number | null }).packPriceCents
+        : null;
+
     const next: FormState = {
       id: p.id,
       name: p.name,
       brand: String((p as Product & { brand?: string }).brand ?? ""),
       active: p.active,
-
       segment: segValid,
       category: p.category,
       sku: p.sku,
@@ -356,8 +367,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       unit: p.unit,
       packQty: p.packQty != null ? String(p.packQty) : "",
       price: p.priceCents != null ? formatCentsToBRLInput(p.priceCents) : "",
+      packPrice:
+        packPriceCents != null ? formatCentsToBRLInput(packPriceCents) : "",
       colors: Array.isArray(p.colors) ? p.colors : [],
-
       imageUrls: urls,
       imagePaths: paths,
     };
@@ -374,6 +386,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     setPreview(remoteItems[0]?.url || "");
     resetColorDrafts();
     setPriceTouched(false);
+    setPackPriceTouched(false);
     setOpen(true);
   }
 
@@ -598,11 +611,21 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         .map((c) => ({ name: normalizeColorName(c.name), hex: c.hex }))
         .filter((c) => c.name && isHexColor(c.hex));
 
-      const priceCents = parseBRLToCents(form.price);
-      if (priceCents == null) {
-        setPriceTouched(true);
-        alert("Preencha um valor válido (ex: 59,90).");
-        return;
+      const unitPriceCents = parseBRLToCents(form.price);
+      const packPriceCents = parseBRLToCents(form.packPrice);
+
+      if (!mustQty) {
+        if (unitPriceCents == null) {
+          setPriceTouched(true);
+          alert("Preencha um valor válido (ex: 59,90).");
+          return;
+        }
+      } else {
+        if (packPriceCents == null) {
+          setPackPriceTouched(true);
+          alert("Preencha o valor total válido (ex: 599,00).");
+          return;
+        }
       }
 
       // 1) transforma a lista atual (remote+local) em remote, subindo só aqui
@@ -623,6 +646,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
         URL.revokeObjectURL(item.url);
       }
 
+      // 2) grava Firestore
       if (form.id) {
         await updateProduct(form.id, {
           name,
@@ -635,7 +659,8 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
           unit: form.unit,
           packQty: packQtyToSave,
           colors: colorsToSave,
-          priceCents,
+          priceCents: unitPriceCents ?? null,
+          packPriceCents: mustQty ? (packPriceCents ?? null) : null,
           imageUrls: finalUrls,
           imagePaths: finalPaths,
         });
@@ -659,7 +684,10 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
           unit: form.unit,
           packQty: packQtyToSave,
           colors: colorsToSave,
-          priceCents,
+
+          priceCents: unitPriceCents ?? null,
+          packPriceCents: mustQty ? (packPriceCents ?? null) : null,
+
           imageUrls: finalUrls,
           imagePaths: finalPaths,
         });
@@ -693,10 +721,10 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
   const mustQty = needsPackQty(form.unit);
   const qtyOk = !mustQty || parsePositiveInt(form.packQty) != null;
-
-  const priceOk = parseBRLToCents(form.price) != null;
-  const showPriceError = priceTouched && !priceOk;
-
+  const unitPriceOk = parseBRLToCents(form.price) != null;
+  const showUnitPriceError = priceTouched && !unitPriceOk;
+  const packPriceOk = parseBRLToCents(form.packPrice) != null;
+  const showPackPriceError = packPriceTouched && mustQty && !packPriceOk;
   const segmentChosen =
     form.segment === "iluminacao" || form.segment === "utensilios";
   const categoryEnabled = segmentChosen && catsForSegment.length > 0;
@@ -742,6 +770,11 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
             {filtered.map((p) => {
               const packInfo = formatPack(p.unit, p.packQty);
               const cents = p.priceCents;
+              const packTotalCents =
+                (p as Product & { packPriceCents?: number | null })
+                  .packPriceCents ?? null;
+
+              const isPack = needsPackQty(p.unit as UnitOption);
               const firstImage = p.imageUrls?.[0] || "";
               const brand = String(
                 (p as Product & { brand?: string }).brand ?? "",
@@ -788,6 +821,13 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                         {packInfo ? (
                           <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
                             {packInfo}
+                          </span>
+                        ) : null}
+
+                        {isPack && packTotalCents != null ? (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
+                            Total {p.unit}:{" "}
+                            {formatCentsToBRLCurrency(packTotalCents)}
                           </span>
                         ) : null}
 
@@ -858,34 +898,28 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       {/* ===================== MODAL ===================== */}
       {open && (
         <div className="fixed inset-0 z-50 bg-black/40">
-          {/* ✅ modal ocupa viewport inteira e organiza em coluna */}
           <div className="h-full w-full bg-white flex flex-col">
-            {/* ✅ header fixo */}
             <div className="px-4 py-4 sm:px-6 border-b">
               <div className="text-lg font-semibold">
                 {form.id ? "Editar produto" : "Novo produto"}
               </div>
             </div>
-
-            {/* ✅ corpo: no MOBILE o scroll é aqui (um scroll só) */}
             <div className="flex-1 min-h-0 px-4 py-4 sm:px-6 overflow-y-auto">
-              {/* ✅ 1 coluna no mobile, 2 colunas no desktop */}
               <div className="min-h-0 grid gap-6 grid-cols-1 lg:grid-cols-[620px_1fr] lg:items-stretch">
                 {/* ===================== MODAL: IMAGENS ===================== */}
                 <div className="min-h-0 flex flex-col lg:h-full lg:overflow-hidden">
                   <div className="text-sm font-medium">IMAGENS</div>
 
-                  {/* ✅ preview com altura MENOR e responsiva (não exagera no desktop, não esmaga no mobile) */}
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={saving}
                     className={`
-                mt-2 w-full rounded-xl border bg-zinc-50 overflow-hidden
-                flex items-center justify-center disabled:opacity-70
-                h-[30vh] sm:h-[36vh] lg:h-[min(42vh,520px)]
-                min-h-[200px] sm:min-h-[240px]
-              `}
+                      mt-2 w-full rounded-xl border bg-zinc-50 overflow-hidden
+                      flex items-center justify-center disabled:opacity-70
+                      h-[30vh] sm:h-[36vh] lg:h-[min(42vh,520px)]
+                      min-h-[200px] sm:min-h-[240px]
+                    `}
                     title="Clique para selecionar imagens"
                   >
                     {preview ? (
@@ -921,8 +955,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                         <b>principal</b>. Arraste para reordenar.
                       </div>
 
-                      {/* ✅ MOBILE: NÃO cria scroll interno (mostra as thumbs normal)
-                    ✅ LG: scroll interno apenas nas thumbs */}
                       <div className="overflow-visible lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pb-2">
                           {imgItems.map((item, idx) => {
@@ -989,8 +1021,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                 </div>
 
                 {/* ===================== MODAL: CAMPOS ===================== */}
-                {/* ✅ MOBILE: sem scroll interno (já rola no corpo)
-              ✅ LG: scroll interno só dos campos, footer fixo */}
                 <div className="min-h-0 flex flex-col lg:h-full">
                   <div className="space-y-4 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
                     <div>
@@ -1090,7 +1120,9 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                               ...s,
                               unit,
                               packQty: needsPackQty(unit) ? s.packQty : "",
+                              packPrice: needsPackQty(unit) ? s.packPrice : "",
                             }));
+                            setPackPriceTouched(false);
                           }}
                         >
                           <option value="Unidade">Unidade</option>
@@ -1105,11 +1137,18 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
                         <label className="block text-sm font-medium">
-                          Valor (R$)
+                          Valor (R$){" "}
+                          {mustQty ? (
+                            <span className="text-xs font-normal text-zinc-500">
+                              (unidade - opcional)
+                            </span>
+                          ) : null}
                         </label>
                         <input
                           className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
-                            showPriceError ? "border-red-500" : ""
+                            !mustQty && showUnitPriceError
+                              ? "border-red-500"
+                              : ""
                           }`}
                           value={form.price}
                           onChange={(e) => {
@@ -1122,7 +1161,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                           placeholder="Ex: 59,90"
                           inputMode="numeric"
                         />
-                        {showPriceError && (
+                        {!mustQty && showUnitPriceError && (
                           <div className="mt-1 text-xs text-red-600">
                             Informe um valor válido (ex: 59,90).
                           </div>
@@ -1145,29 +1184,57 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                     </div>
 
                     {mustQty && (
-                      <div>
-                        <label className="block text-sm font-medium">
-                          {packQtyLabel(form.unit)}
-                        </label>
-                        <input
-                          className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
-                            qtyOk ? "" : "border-red-500"
-                          }`}
-                          value={form.packQty}
-                          onChange={(e) =>
-                            setForm((s) => ({
-                              ...s,
-                              packQty: digitsOnly(e.target.value),
-                            }))
-                          }
-                          placeholder="Ex: 10"
-                          inputMode="numeric"
-                        />
-                        {!qtyOk && (
-                          <div className="mt-1 text-xs text-red-600">
-                            Informe um número inteiro maior que 0.
-                          </div>
-                        )}
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="block text-sm font-medium">
+                            {packQtyLabel(form.unit)}
+                          </label>
+                          <input
+                            className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                              qtyOk ? "" : "border-red-500"
+                            }`}
+                            value={form.packQty}
+                            onChange={(e) =>
+                              setForm((s) => ({
+                                ...s,
+                                packQty: digitsOnly(e.target.value),
+                              }))
+                            }
+                            placeholder="Ex: 10"
+                            inputMode="numeric"
+                          />
+                          {!qtyOk && (
+                            <div className="mt-1 text-xs text-red-600">
+                              Informe um número inteiro maior que 0.
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium">
+                            {packPriceLabel(form.unit)}
+                          </label>
+                          <input
+                            className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                              showPackPriceError ? "border-red-500" : ""
+                            }`}
+                            value={form.packPrice}
+                            onChange={(e) => {
+                              setPackPriceTouched(true);
+                              const d = digitsOnly(e.target.value);
+                              const formatted = formatBRLInputFromDigits(d);
+                              setForm((s) => ({ ...s, packPrice: formatted }));
+                            }}
+                            onBlur={() => setPackPriceTouched(true)}
+                            placeholder="Ex: 599,00"
+                            inputMode="numeric"
+                          />
+                          {showPackPriceError && (
+                            <div className="mt-1 text-xs text-red-600">
+                              Informe um valor total válido (ex: 599,00).
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -1282,8 +1349,6 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                     </label>
                   </div>
 
-                  {/* ✅ footer: no mobile fica normal (acompanhando scroll do corpo)
-                ✅ no lg continua “colado” embaixo */}
                   <div className="border-t pt-3 mt-3 flex flex-col sm:flex-row justify-end gap-2 lg:mt-3">
                     <button
                       onClick={closeModal}
@@ -1300,7 +1365,8 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                         !form.segment ||
                         !form.category.trim() ||
                         !qtyOk ||
-                        !priceOk
+                        (!mustQty && !unitPriceOk) ||
+                        (mustQty && !packPriceOk)
                       }
                       className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
                     >

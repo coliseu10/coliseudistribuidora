@@ -34,6 +34,7 @@ export type ProductDoc = {
   packQty: number | null;
   colors: ProductColor[];
   priceCents: number | null;
+  packPriceCents: number | null;
   imageUrls: string[];
   imagePaths: string[];
   createdAt: Timestamp | null;
@@ -66,13 +67,10 @@ function toSegment(data: DocumentData): HomeSegment | null {
   return null;
 }
 
-function toPriceCents(data: DocumentData): number | null {
-  if (
-    typeof data?.priceCents === "number" &&
-    Number.isFinite(data.priceCents)
-  ) {
-    const v = Math.trunc(data.priceCents);
-    return v >= 0 ? v : null;
+function toPriceCentsValue(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const n = Math.trunc(v);
+    return n >= 0 ? n : null;
   }
   return null;
 }
@@ -121,7 +119,12 @@ function coerceProductDoc(data: DocumentData): ProductDoc {
     packQty: typeof data?.packQty === "number" ? data.packQty : null,
 
     colors,
-    priceCents: toPriceCents(data),
+
+    // unidade
+    priceCents: toPriceCentsValue(data?.priceCents),
+
+    // total (novo)
+    packPriceCents: toPriceCentsValue(data?.packPriceCents),
 
     imageUrls,
     imagePaths,

@@ -15,10 +15,11 @@ type Props = {
   onEditProduct?: (id: string) => void;
   onNewProduct?: (categoryName: string, segment?: HomeSegment) => void;
 };
-
 type UnitOption = "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
 type ProductColor = { name: string; hex: string };
-type ProductWithColors = Product & { colors?: ProductColor[] };
+type ProductWithColors = Product &
+  ProductWithPackTotal & { colors?: ProductColor[] };
+type ProductWithPackTotal = { packPriceCents?: number | null };
 
 function categoryBadgeClass() {
   return "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-violet-50 text-violet-700 ring-1 ring-violet-600/20";
@@ -29,21 +30,31 @@ function formatPack(unit: UnitOption, packQty: number | null) {
   return packQty && packQty > 0 ? `${unit} • ${packQty} peças` : unit;
 }
 
-export default function CategoriasPanel({ onEditProduct, onNewProduct }: Props) {
+function needsPackQty(unit: UnitOption) {
+  return unit === "Kit" || unit === "Meia Caixa" || unit === "Caixa Fechada";
+}
+
+function formatCentsToBRLCurrency(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+export default function CategoriasPanel({
+  onEditProduct,
+  onNewProduct,
+}: Props) {
   const [cats, setCats] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-
   const [newNameIlum, setNewNameIlum] = useState("");
   const [newNameUten, setNewNameUten] = useState("");
   const [savingIlum, setSavingIlum] = useState(false);
   const [savingUten, setSavingUten] = useState(false);
-
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
-
-  // ✅ abertura por segmento (não "global" pras duas colunas)
   const [openCatIdBySeg, setOpenCatIdBySeg] = useState<{
     iluminacao: string | null;
     utensilios: string | null;
@@ -354,6 +365,7 @@ export default function CategoriasPanel({ onEditProduct, onNewProduct }: Props) 
                         <div className="divide-y">
                           {prods.map((pBase) => {
                             const p = pBase as ProductWithColors;
+
                             const packInfo = formatPack(
                               p.unit as UnitOption,
                               p.packQty ?? null,
@@ -361,11 +373,14 @@ export default function CategoriasPanel({ onEditProduct, onNewProduct }: Props) 
                             const colors = Array.isArray(p.colors)
                               ? p.colors
                               : [];
-
-                            // ✅ NOVO: marca (badge igual no painel de produtos)
                             const brand = String(
                               (p as Product & { brand?: string }).brand ?? "",
                             ).trim();
+                            const packTotalCents =
+                              (p as ProductWithPackTotal).packPriceCents ??
+                              null;
+                            const isPack = needsPackQty(p.unit as UnitOption);
+                            const unitCents = p.priceCents ?? null;
 
                             return (
                               <div
@@ -406,11 +421,28 @@ export default function CategoriasPanel({ onEditProduct, onNewProduct }: Props) 
                                           Cod: {p.sku}
                                         </span>
                                       ) : null}
+
                                       {packInfo ? (
                                         <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
                                           {packInfo}
                                         </span>
                                       ) : null}
+
+                                      {isPack && packTotalCents != null ? (
+                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
+                                          Total {p.unit}:{" "}
+                                          {formatCentsToBRLCurrency(
+                                            packTotalCents,
+                                          )}
+                                        </span>
+                                      ) : null}
+
+                                      {unitCents != null ? (
+                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
+                                          {formatCentsToBRLCurrency(unitCents)}
+                                        </span>
+                                      ) : null}
+
                                       {p.active ? (
                                         <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20">
                                           Ativo
@@ -487,9 +519,7 @@ export default function CategoriasPanel({ onEditProduct, onNewProduct }: Props) 
   }
 
   return (
-    // ✅ AJUSTE: sem scroll lateral + ocupa tela inteira
     <div className="relative left-1/2 -translate-x-1/2 w-[100dvw] px-4 lg:px-10 overflow-x-hidden">
-      {/* ✅ AJUSTE: não esticar coluna direita quando esquerda expande */}
       <div className="grid gap-4 lg:grid-cols-2 items-start">
         {renderColumn("Iluminação", "iluminacao", catsBySeg.ilum)}
         {renderColumn("Utensílios Domésticos", "utensilios", catsBySeg.uten)}

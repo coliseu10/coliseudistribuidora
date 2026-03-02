@@ -26,7 +26,16 @@ function formatPriceCents(priceCents: number | null | undefined) {
   return "";
 }
 
-/** ✅ Agora só usa o formato atual (imageUrls). Remove legado p.imageUrl */
+function isPackUnit(unit: UnitOption | null | undefined) {
+  const u = (unit ?? "") as UnitOption;
+  return u === "Kit" || u === "Meia Caixa" || u === "Caixa Fechada";
+}
+
+function getPackTotalCents(p: Product): number | null {
+  const v = (p as Product & { packPriceCents?: number | null }).packPriceCents;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
 function getProductImages(p: Product): string[] {
   return Array.isArray(p.imageUrls) ? p.imageUrls.filter(Boolean) : [];
 }
@@ -173,13 +182,9 @@ export default function Home() {
     const obs = new IntersectionObserver(
       ([entry]) => {
         const outOfView = !entry.isIntersecting;
-
-        // ✅ Só mostra o botão quando a barra já ficou "pra cima" da tela (você passou por ela)
         const isAboveViewport = entry.boundingClientRect.top < 0;
-
         const shouldShow = outOfView && isAboveViewport;
         setShowCatFab(shouldShow);
-
         if (!shouldShow) setCatFabOpen(false);
       },
       { threshold: 0.15 },
@@ -596,6 +601,9 @@ export default function Home() {
                               (p as Product & { brand?: string }).brand ?? "",
                             ).trim();
 
+                            const isPack = isPackUnit(p.unit ?? "");
+                            const packTotalCents = getPackTotalCents(p);
+
                             return (
                               <article
                                 key={p.id}
@@ -638,7 +646,6 @@ export default function Home() {
                                       {p.name}
                                     </div>
 
-                                    {/* ✅ MARCA */}
                                     <div className="mt-2 flex flex-wrap items-center gap-2">
                                       {brand ? (
                                         <span className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-black text-zinc-700 ring-1 ring-zinc-700/10">
@@ -652,11 +659,15 @@ export default function Home() {
                                       ) : null}
 
                                       {p.sku?.trim() ? (
-  <span className="ml-auto inline-flex items-center gap-2 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-black text-blue-900 ring-1 ring-blue-900/10">
-    <span className="text-[11px]">CÓDIGO:</span>
-    <span className="font-black tracking-wide">{p.sku}</span>
-  </span>
-) : null}
+                                        <span className="ml-auto inline-flex items-center gap-2 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-black text-blue-900 ring-1 ring-blue-900/10">
+                                          <span className="text-[11px]">
+                                            CÓDIGO:
+                                          </span>
+                                          <span className="font-black tracking-wide">
+                                            {p.sku}
+                                          </span>
+                                        </span>
+                                      ) : null}
 
                                       {!brand && !p.sku?.trim() ? (
                                         <span className="text-xs text-zinc-600">
@@ -732,14 +743,67 @@ export default function Home() {
                                         </div>
 
                                         <div className="rounded-xl bg-zinc-50 px-3 py-2">
-                                          <div className="text-[11px] font-black text-zinc-700">
-                                            PREÇO
-                                          </div>
-                                          <div className="mt-1 text-base font-black text-zinc-800">
-                                            {formatPriceCents(
+                                          {(() => {
+                                            const unitText = formatPriceCents(
                                               p.priceCents ?? null,
-                                            ) || <span>&nbsp;</span>}
-                                          </div>
+                                            );
+                                            const packText =
+                                              formatPriceCents(packTotalCents);
+
+                                            // ✅ se não tem nenhum preço relevante, não mostra labels
+                                            if (
+                                              !unitText &&
+                                              (!isPack || !packText)
+                                            ) {
+                                              return <span>&nbsp;</span>;
+                                            }
+
+                                            // ✅ se for pack e só tiver caixa, mostra só a caixa
+                                            if (isPack && !unitText && packText) {
+                                              return (
+                                                <>
+                                                  <div className="text-[11px] font-black text-zinc-700">
+                                                    PREÇO CAIXA
+                                                  </div>
+                                                  <div className="mt-1 text-base font-black text-zinc-800">
+                                                    {packText}
+                                                  </div>
+                                                </>
+                                              );
+                                            }
+
+                                            return (
+                                              <>
+                                                {unitText ? (
+                                                  <>
+                                                    <div className="text-[11px] font-black text-zinc-700">
+                                                      {isPack
+                                                        ? "PREÇO (UNIDADE)"
+                                                        : "PREÇO"}
+                                                    </div>
+                                                    <div className="mt-1 text-base font-black text-zinc-800">
+                                                      {unitText}
+                                                    </div>
+                                                  </>
+                                                ) : null}
+
+                                                {isPack && packText ? (
+                                                  <>
+                                                    <div
+                                                      className={`${
+                                                        unitText ? "mt-2" : ""
+                                                      } text-[11px] font-black text-zinc-700`}
+                                                    >
+                                                      PREÇO CAIXA
+                                                    </div>
+                                                    <div className="mt-1 text-base font-black text-zinc-800">
+                                                      {packText}
+                                                    </div>
+                                                  </>
+                                                ) : null}
+                                              </>
+                                            );
+                                          })()}
                                         </div>
                                       </div>
                                     </div>
@@ -838,6 +902,8 @@ export default function Home() {
           prevImage={prevImage}
           formatPack={formatPack}
           formatPriceCents={formatPriceCents}
+          getPackTotalCents={getPackTotalCents}
+          isPackUnit={isPackUnit}
         />
       )}
     </div>
@@ -845,9 +911,9 @@ export default function Home() {
 }
 
 /* ===========================
-   ✅ LIGHTBOX
-   - Mobile (<=1023): overlay transparente (glass) ✅
-   - Desktop (>=1024): full screen branco ✅
+    LIGHTBOX
+   - Mobile (<=1023): overlay transparente (glass)
+   - Desktop (>=1024): full screen branco
 =========================== */
 function LightboxML(props: {
   lightbox: LightboxState;
@@ -860,6 +926,8 @@ function LightboxML(props: {
     packQty: number | null | undefined,
   ) => string;
   formatPriceCents: (priceCents: number | null | undefined) => string;
+  getPackTotalCents: (p: Product) => number | null;
+  isPackUnit: (unit: UnitOption | null | undefined) => boolean;
 }) {
   const {
     lightbox,
@@ -869,6 +937,8 @@ function LightboxML(props: {
     prevImage,
     formatPack,
     formatPriceCents,
+    getPackTotalCents,
+    isPackUnit,
   } = props;
 
   const [zoomOpen, setZoomOpen] = useState(false);
@@ -882,7 +952,7 @@ function LightboxML(props: {
   ).trim();
 
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1023px)"); // ✅ sm/md
+    const mq = window.matchMedia("(max-width: 1023px)");
     const apply = () => setIsMobile(mq.matches);
     apply();
     mq.addEventListener?.("change", apply);
@@ -928,14 +998,15 @@ function LightboxML(props: {
     };
   }, []);
 
-  /* MOBILE */
+  const packTotalCents = getPackTotalCents(lightbox.product);
+  const isPack = isPackUnit(lightbox.product.unit);
+
   const MobilePage = (
     <div
       className="fixed inset-0 z-50 bg-black/80 flex flex-col"
       role="dialog"
       aria-modal="true"
     >
-      {/* header */}
       <div
         className="sticky top-0 z-10 px-3 pb-3 pt-4 flex items-center justify-between gap-3 bg-black/40 backdrop-blur-md shrink-0"
         style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}
@@ -967,7 +1038,6 @@ function LightboxML(props: {
           paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))",
         }}
       >
-        {/* imagem (painel branco) */}
         <div className="px-3">
           <div className="relative w-full rounded-xl border border-white/15 bg-white overflow-hidden shadow-xl">
             <button
@@ -1030,7 +1100,6 @@ function LightboxML(props: {
             )}
           </div>
 
-          {/* miniaturas (mobile) */}
           {hasMany && (
             <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
               {lightbox.urls.map((u, i) => (
@@ -1060,7 +1129,6 @@ function LightboxML(props: {
           )}
         </div>
 
-        {/* infos (glass) */}
         <div className="px-3 py-4 space-y-3 text-white">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {brand ? (
@@ -1118,9 +1186,7 @@ function LightboxML(props: {
                       className="h-3 w-3 rounded-full ring-1 ring-black/25 shrink-0"
                       style={{ backgroundColor: c.hex }}
                     />
-                    <span className="whitespace-nowrap text-white">
-                      {c.name}
-                    </span>
+                    <span className="whitespace-nowrap text-white">{c.name}</span>
                   </span>
                 ))}
               </div>
@@ -1143,12 +1209,59 @@ function LightboxML(props: {
             </div>
 
             <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
-              <div className="text-[11px] font-black text-white/90">PREÇO</div>
-              <div className="mt-1 text-base font-black text-white">
-                {formatPriceCents(lightbox.product.priceCents ?? null) || (
-                  <span>&nbsp;</span>
-                )}
-              </div>
+              {(() => {
+                const unitText = formatPriceCents(
+                  lightbox.product.priceCents ?? null,
+                );
+                const packText = formatPriceCents(packTotalCents);
+
+                if (!unitText && (!isPack || !packText)) {
+                  return <span>&nbsp;</span>;
+                }
+
+                if (isPack && !unitText && packText) {
+                  return (
+                    <>
+                      <div className="text-[11px] font-black text-white/90">
+                        PREÇO CAIXA
+                      </div>
+                      <div className="mt-1 text-base font-black text-white">
+                        {packText}
+                      </div>
+                    </>
+                  );
+                }
+
+                return (
+                  <>
+                    {unitText ? (
+                      <>
+                        <div className="text-[11px] font-black text-white/90">
+                          {isPack ? "PREÇO (UNIDADE)" : "PREÇO"}
+                        </div>
+                        <div className="mt-1 text-base font-black text-white">
+                          {unitText}
+                        </div>
+                      </>
+                    ) : null}
+
+                    {isPack && packText ? (
+                      <>
+                        <div
+                          className={`${
+                            unitText ? "mt-2" : ""
+                          } text-[11px] font-black text-white/90`}
+                        >
+                          PREÇO CAIXA
+                        </div>
+                        <div className="mt-1 text-base font-black text-white">
+                          {packText}
+                        </div>
+                      </>
+                    ) : null}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1156,7 +1269,6 @@ function LightboxML(props: {
     </div>
   );
 
-  /* DESKTOP */
   const DesktopModal = (
     <div
       className="fixed inset-0 z-50 bg-white"
@@ -1192,9 +1304,8 @@ function LightboxML(props: {
 
         <div className="flex-1 min-h-0 p-4">
           <div className="h-full min-h-0 grid grid-cols-1 lg:grid-cols-[92px_1fr_420px] gap-4">
-            {/* miniaturas (desktop) */}
             <div className="hidden lg:block">
-              {hasMany ? (
+              {lightbox.urls.length > 1 ? (
                 <div className="h-full overflow-y-auto pr-1 space-y-2">
                   {lightbox.urls.map((u, i) => (
                     <button
@@ -1227,7 +1338,6 @@ function LightboxML(props: {
               )}
             </div>
 
-            {/* imagem grande */}
             <div className="min-h-0 flex flex-col">
               <div className="relative flex-1 min-h-0 rounded-xl border border-zinc-200 bg-white overflow-hidden">
                 <button
@@ -1245,7 +1355,7 @@ function LightboxML(props: {
                   />
                 </button>
 
-                {hasMany && (
+                {lightbox.urls.length > 1 && (
                   <>
                     <button
                       type="button"
@@ -1294,8 +1404,7 @@ function LightboxML(props: {
                 </div>
               </div>
 
-              {/* miniaturas (mobile/tablet dentro do modal) */}
-              {hasMany && (
+              {lightbox.urls.length > 1 && (
                 <div className="mt-3 lg:hidden flex gap-2 overflow-x-auto pb-1">
                   {lightbox.urls.map((u, i) => (
                     <button
@@ -1326,11 +1435,9 @@ function LightboxML(props: {
               )}
             </div>
 
-            {/* infos (direita) */}
             <div className="min-h-0">
               <div className="h-full min-h-0 overflow-y-auto pr-1 space-y-3">
                 <div className="rounded-xl bg-zinc-50 border border-zinc-200 p-4">
-                  {/* marca no bloco de infos (desktop) */}
                   {brand ? (
                     <div className="mb-3 flex items-center gap-2">
                       <span className="rounded-md bg-white px-2 py-0.5 text-[11px] font-black text-zinc-700 ring-1 ring-zinc-200">
@@ -1383,9 +1490,7 @@ function LightboxML(props: {
                                 className="h-3 w-3 rounded-full ring-1 ring-black/20 shrink-0"
                                 style={{ backgroundColor: c.hex }}
                               />
-                              <span className="whitespace-nowrap">
-                                {c.name}
-                              </span>
+                              <span className="whitespace-nowrap">{c.name}</span>
                             </span>
                           ))}
                         </div>
@@ -1408,14 +1513,59 @@ function LightboxML(props: {
                       </div>
 
                       <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
-                        <div className="text-[11px] font-black text-zinc-700">
-                          PREÇO
-                        </div>
-                        <div className="mt-1 text-base font-black text-zinc-800">
-                          {formatPriceCents(
+                        {(() => {
+                          const unitText = formatPriceCents(
                             lightbox.product.priceCents ?? null,
-                          ) || <span>&nbsp;</span>}
-                        </div>
+                          );
+                          const packText = formatPriceCents(packTotalCents);
+
+                          if (!unitText && (!isPack || !packText)) {
+                            return <span>&nbsp;</span>;
+                          }
+
+                          if (isPack && !unitText && packText) {
+                            return (
+                              <>
+                                <div className="text-[11px] font-black text-zinc-700">
+                                  PREÇO CAIXA
+                                </div>
+                                <div className="mt-1 text-base font-black text-zinc-800">
+                                  {packText}
+                                </div>
+                              </>
+                            );
+                          }
+
+                          return (
+                            <>
+                              {unitText ? (
+                                <>
+                                  <div className="text-[11px] font-black text-zinc-700">
+                                    {isPack ? "PREÇO (UNIDADE)" : "PREÇO"}
+                                  </div>
+                                  <div className="mt-1 text-base font-black text-zinc-800">
+                                    {unitText}
+                                  </div>
+                                </>
+                              ) : null}
+
+                              {isPack && packText ? (
+                                <>
+                                  <div
+                                    className={`${
+                                      unitText ? "mt-2" : ""
+                                    } text-[11px] font-black text-zinc-700`}
+                                  >
+                                    PREÇO CAIXA
+                                  </div>
+                                  <div className="mt-1 text-base font-black text-zinc-800">
+                                    {packText}
+                                  </div>
+                                </>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -1432,7 +1582,6 @@ function LightboxML(props: {
     <>
       {isMobile ? MobilePage : DesktopModal}
 
-      {/* zoom fullscreen (compartilhado) */}
       {zoomOpen && (
         <div
           className="fixed inset-0 z-[60] bg-black/90 p-4 flex items-center justify-center"

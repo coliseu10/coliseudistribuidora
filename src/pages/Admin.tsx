@@ -21,7 +21,6 @@ export default function Admin() {
     setTab("produtos");
   }
 
-  // ✅ ALTERADO: agora recebe também o segmento vindo do CategoriasPanel
   function handleNewProduct(
     categoryName: string,
     segment?: "iluminacao" | "utensilios",
@@ -77,7 +76,7 @@ export default function Admin() {
           ) : (
             <CategoriasPanel
               onEditProduct={handleEditProduct}
-              onNewProduct={handleNewProduct} // ✅ agora combina (name, segment)
+              onNewProduct={handleNewProduct}
             />
           )}
         </div>
