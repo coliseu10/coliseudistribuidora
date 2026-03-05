@@ -138,7 +138,7 @@ export async function listProducts(): Promise<Product[]> {
   const q = query(
     collection(db, "products"),
     orderBy("createdAt", "desc"),
-    limit(200),
+    limit(5000),
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...coerceProductDoc(d.data()) }));
