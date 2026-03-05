@@ -153,6 +153,32 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
   /* ===================== STATE (filtro) ===================== */
   const [q, setQ] = useState("");
 
+  /* ===================== STATE (seleção p/ excluir em massa) ===================== */
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  function isSelected(id: string) {
+    return selectedIds.has(id);
+  }
+  function toggleSelected(id: string) {
+    setSelectedIds((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+  function selectAllVisible(list: Product[]) {
+    setSelectedIds((cur) => {
+      const next = new Set(cur);
+      for (const p of list) next.add(p.id);
+      return next;
+    });
+  }
+
   /* ===================== STATE (modal/form) ===================== */
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -272,6 +298,21 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
   }, [items, q]);
 
   const canCreate = cats.length > 0;
+
+  /* ===================== LIMPA SELEÇÃO DE IDS QUE NÃO EXISTEM MAIS ===================== */
+  useEffect(() => {
+    setSelectedIds((cur) => {
+      if (cur.size === 0) return cur;
+      const existing = new Set(items.map((p) => p.id));
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of cur) {
+        if (existing.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : cur;
+    });
+  }, [items]);
 
   /* ===================== MODAL: open/close ===================== */
   function resetColorDrafts() {
@@ -600,9 +641,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
       const mustQty = needsPackQty(form.unit);
       const qty = parsePositiveInt(form.packQty);
       if (mustQty && qty == null) {
-        alert(
-          "Preencha uma quantidade válida (inteiro > 0) para essa embalagem.",
-        );
+        alert("Preencha uma quantidade válida (inteiro > 0) para essa embalagem.");
         return;
       }
       const packQtyToSave: number | null = mustQty ? qty : null;
@@ -702,9 +741,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
   async function delProduct(p: Product) {
     if (!confirm("Excluir este produto?")) return;
-    const paths = Array.isArray(
-      (p as Product & { imagePaths?: string[] }).imagePaths,
-    )
+    const paths = Array.isArray((p as Product & { imagePaths?: string[] }).imagePaths)
       ? ((p as Product & { imagePaths?: string[] }).imagePaths as string[])
       : [];
     for (const path of paths) {
@@ -719,15 +756,75 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
     await reload();
   }
 
+  async function bulkDeleteSelected() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    if (
+      !confirm(
+        `Excluir ${ids.length} produto(s) selecionado(s)? Essa ação não pode ser desfeita.`,
+      )
+    )
+      return;
+
+    setBulkDeleting(true);
+    try {
+      const map = new Map(items.map((p) => [p.id, p]));
+      for (const id of ids) {
+        const p = map.get(id);
+        if (!p) continue;
+
+        const paths = Array.isArray((p as Product & { imagePaths?: string[] }).imagePaths)
+          ? ((p as Product & { imagePaths?: string[] }).imagePaths as string[])
+          : [];
+
+        for (const path of paths) {
+          if (!path) continue;
+          try {
+            await deleteImageByPath(path);
+          } catch (e) {
+            void e;
+          }
+        }
+
+        await removeProduct(id);
+      }
+
+      clearSelection();
+      await reload();
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
   const mustQty = needsPackQty(form.unit);
   const qtyOk = !mustQty || parsePositiveInt(form.packQty) != null;
   const unitPriceOk = parseBRLToCents(form.price) != null;
   const showUnitPriceError = priceTouched && !unitPriceOk;
   const packPriceOk = parseBRLToCents(form.packPrice) != null;
   const showPackPriceError = packPriceTouched && mustQty && !packPriceOk;
-  const segmentChosen =
-    form.segment === "iluminacao" || form.segment === "utensilios";
+  const segmentChosen = form.segment === "iluminacao" || form.segment === "utensilios";
   const categoryEnabled = segmentChosen && catsForSegment.length > 0;
+
+  const selectedCount = selectedIds.size;
+  const visibleSelectedCount = useMemo(() => {
+    if (selectedIds.size === 0) return 0;
+    let c = 0;
+    for (const p of filtered) if (selectedIds.has(p.id)) c++;
+    return c;
+  }, [filtered, selectedIds]);
+
+  // ✅ header checkbox "selecionar tudo visível"
+  const allVisibleSelected =
+    filtered.length > 0 && filtered.every((p) => selectedIds.has(p.id));
+  const someVisibleSelected =
+    filtered.some((p) => selectedIds.has(p.id)) && !allVisibleSelected;
+
+  const headerCheckRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (!headerCheckRef.current) return;
+    headerCheckRef.current.indeterminate = someVisibleSelected;
+  }, [someVisibleSelected]);
 
   return (
     <div className="space-y-4">
@@ -759,7 +856,56 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
       {/* ===================== LISTA ===================== */}
       <div className="rounded-xl border bg-white">
-        <div className="border-b px-4 py-3 text-sm font-medium">Produtos</div>
+        <div className="border-b px-4 py-3 text-sm font-medium flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {/* ✅ checkbox master */}
+            <input
+              ref={headerCheckRef}
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={() => {
+                if (allVisibleSelected) clearSelection();
+                else selectAllVisible(filtered);
+              }}
+              className="h-4 w-4"
+              aria-label="Selecionar todos visíveis"
+              disabled={loading || filtered.length === 0}
+              title="Selecionar todos visíveis"
+            />
+            <div>Produtos</div>
+          </div>
+
+          {/* ✅ removeu "Desmarcar" (deixei só Limpar) */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="text-xs text-zinc-600">
+              Selecionados: <b>{selectedCount}</b>
+              {q.trim() ? (
+                <span className="text-zinc-500">
+                  {" "}
+                  (nesta busca: {visibleSelectedCount})
+                </span>
+              ) : null}
+            </div>
+
+            <button
+              onClick={clearSelection}
+              disabled={selectedCount === 0}
+              className="rounded-lg border px-3 py-2 text-sm"
+              title="Limpar seleção"
+            >
+              Limpar
+            </button>
+
+            <button
+              onClick={bulkDeleteSelected}
+              disabled={selectedCount === 0 || bulkDeleting}
+              className="rounded-lg border px-3 py-2 text-sm text-red-600 disabled:opacity-50"
+              title="Excluir selecionados"
+            >
+              {bulkDeleting ? "Excluindo..." : "Excluir selecionados"}
+            </button>
+          </div>
+        </div>
 
         {loading ? (
           <div className="p-4 text-sm text-zinc-600">Carregando...</div>
@@ -771,22 +917,42 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
               const packInfo = formatPack(p.unit, p.packQty);
               const cents = p.priceCents;
               const packTotalCents =
-                (p as Product & { packPriceCents?: number | null })
-                  .packPriceCents ?? null;
+                (p as Product & { packPriceCents?: number | null }).packPriceCents ?? null;
 
               const isPack = needsPackQty(p.unit as UnitOption);
               const firstImage = p.imageUrls?.[0] || "";
-              const brand = String(
-                (p as Product & { brand?: string }).brand ?? "",
-              ).trim();
+              const brand = String((p as Product & { brand?: string }).brand ?? "").trim();
+
+              const checked = isSelected(p.id);
 
               return (
                 <div
                   key={p.id}
-                  className="px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+                  // ✅ clique na linha seleciona/deseleciona (sem afetar botões/inputs)
+                  onClick={() => toggleSelected(p.id)}
+                  className={`px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between cursor-pointer ${
+                    checked ? "bg-zinc-50" : ""
+                  }`}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="h-12 w-12 rounded-lg bg-zinc-100 overflow-hidden flex items-center justify-center shrink-0">
+                    {/* ✅ checkbox (para acessibilidade) */}
+                    <label
+                      className="pt-1.5"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSelected(p.id)}
+                        className="h-4 w-4"
+                        aria-label={`Selecionar ${p.name}`}
+                      />
+                    </label>
+
+                    <div
+                      className="h-12 w-12 rounded-lg bg-zinc-100 overflow-hidden flex items-center justify-center shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {firstImage ? (
                         <img
                           src={firstImage}
@@ -802,9 +968,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                       <div className="font-medium">{p.name}</div>
 
                       <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <span className={categoryBadgeClass()}>
-                          {p.category || "—"}
-                        </span>
+                        <span className={categoryBadgeClass()}>{p.category || "—"}</span>
 
                         {brand ? (
                           <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
@@ -826,8 +990,7 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
 
                         {isPack && packTotalCents != null ? (
                           <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
-                            Total {p.unit}:{" "}
-                            {formatCentsToBRLCurrency(packTotalCents)}
+                            Total {p.unit}: {formatCentsToBRLCurrency(packTotalCents)}
                           </span>
                         ) : null}
 
@@ -874,7 +1037,11 @@ export default function ProdutosPanel({ intent, clearIntent }: Props) {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-2 justify-end">
+                  {/* ✅ botões não “clicam” a linha */}
+                  <div
+                    className="flex flex-wrap gap-2 justify-end"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <button
                       onClick={() => openEdit(p)}
                       className="rounded-lg border px-3 py-2 text-sm"
