@@ -5,9 +5,12 @@ import { Link } from "react-router-dom";
 
 import ProdutosPanel, { type ProductIntent } from "../admin/ProdutosPainel";
 import CategoriasPanel from "../admin/CategoriasiPanel";
+import ImportarPlanilhaPanel from "../admin/ImportarPlanilhaPanel";
 
 export default function Admin() {
-  const [tab, setTab] = useState<"produtos" | "categorias">("categorias");
+  const [tab, setTab] = useState<"produtos" | "categorias" | "importar">(
+    "categorias",
+  );
 
   // intent para abrir modal do ProdutosPanel vindo da aba Categorias
   const [intent, setIntent] = useState<ProductIntent | null>(null);
@@ -62,6 +65,15 @@ export default function Admin() {
             </button>
 
             <button
+              onClick={() => setTab("importar")}
+              className={`rounded-lg border px-4 py-2 text-sm ${
+                tab === "importar" ? "bg-black text-white" : "bg-white"
+              }`}
+            >
+              Importar
+            </button>
+
+            <button
               onClick={() => signOut(auth)}
               className="rounded-lg border px-4 py-2 text-sm bg-white"
             >
@@ -73,11 +85,13 @@ export default function Admin() {
         <div className="mt-6">
           {tab === "produtos" ? (
             <ProdutosPanel intent={intent} clearIntent={clearIntent} />
-          ) : (
+          ) : tab === "categorias" ? (
             <CategoriasPanel
               onEditProduct={handleEditProduct}
               onNewProduct={handleNewProduct}
             />
+          ) : (
+            <ImportarPlanilhaPanel />
           )}
         </div>
       </div>
