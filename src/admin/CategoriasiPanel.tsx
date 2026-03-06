@@ -8,22 +8,29 @@ import {
   type Category,
   type CategorySegment,
 } from "../lib/categorias";
-import { listProducts, removeProduct, type HomeSegment } from "../lib/produtos";
+import {
+  listProducts,
+  removeProduct,
+  updateProduct,
+  type HomeSegment,
+} from "../lib/produtos";
 import type { Product } from "../lib/produtos";
 
 type Props = {
   onEditProduct?: (id: string) => void;
   onNewProduct?: (categoryName: string, segment?: HomeSegment) => void;
 };
+
 type UnitOption = "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
 type ProductColor = { name: string; hex: string };
+type ProductWithPackTotal = { packPriceCents?: number | null };
 type ProductWithColors = Product &
   ProductWithPackTotal & { colors?: ProductColor[] };
-type ProductWithPackTotal = { packPriceCents?: number | null };
 
 function categoryBadgeClass() {
   return "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-violet-50 text-violet-700 ring-1 ring-violet-600/20";
 }
+
 function formatPack(unit: UnitOption, packQty: number | null) {
   if (!unit) return null;
   if (unit === "Unidade") return "Unidade";
@@ -48,13 +55,16 @@ export default function CategoriasPanel({
   const [cats, setCats] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [newNameIlum, setNewNameIlum] = useState("");
   const [newNameUten, setNewNameUten] = useState("");
   const [savingIlum, setSavingIlum] = useState(false);
   const [savingUten, setSavingUten] = useState(false);
+
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+
   const [openCatIdBySeg, setOpenCatIdBySeg] = useState<{
     iluminacao: string | null;
     utensilios: string | null;
@@ -77,11 +87,13 @@ export default function CategoriasPanel({
 
   const productsByCategoryName = useMemo(() => {
     const map = new Map<string, Product[]>();
+
     for (const p of products) {
       const key = (p.category || "").trim();
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(p);
     }
+
     return map;
   }, [products]);
 
@@ -133,9 +145,36 @@ export default function CategoriasPanel({
 
   async function saveEdit() {
     if (!editId) return;
+
+    const newName = editName.trim();
+    if (!newName) return;
+
+    const currentCategory = cats.find((c) => c.id === editId);
+    if (!currentCategory) return;
+
+    const oldName = currentCategory.name.trim();
+
     setSavingEdit(true);
     try {
-      await renameCategory(editId, editName);
+      if (oldName !== newName) {
+        const relatedProducts = products.filter(
+          (p) => (p.category || "").trim() === oldName,
+        );
+
+        await renameCategory(editId, newName);
+
+        await Promise.all(
+          relatedProducts.map((p) =>
+            updateProduct(p.id, {
+              ...p,
+              category: newName,
+            }),
+          ),
+        );
+      } else {
+        await renameCategory(editId, newName);
+      }
+
       setEditId(null);
       setEditName("");
       await reload();
@@ -175,6 +214,7 @@ export default function CategoriasPanel({
       setCategoryOrder(a.id, b.order),
       setCategoryOrder(b.id, a.order),
     ]);
+
     await reload();
   }
 
@@ -189,6 +229,7 @@ export default function CategoriasPanel({
       setCategoryOrder(a.id, b.order),
       setCategoryOrder(b.id, a.order),
     ]);
+
     await reload();
   }
 
@@ -214,7 +255,8 @@ export default function CategoriasPanel({
           <div className="text-sm font-medium text-blue-600">
             Cadastrar Categoria
           </div>
-          <div className="mt-3 flex flex-col sm:flex-row gap-2">
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <input
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
@@ -246,11 +288,11 @@ export default function CategoriasPanel({
               return (
                 <div key={c.id} className="px-4 py-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
                       <button
                         type="button"
                         onClick={() => toggleOpen(seg, c)}
-                        className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-lg border bg-white hover:bg-zinc-50"
+                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-white hover:bg-zinc-50"
                         title={isOpen ? "Fechar produtos" : "Abrir produtos"}
                         aria-expanded={isOpen}
                       >
@@ -303,7 +345,7 @@ export default function CategoriasPanel({
                           <input
                             value={editName}
                             onChange={(e) => setEditName(e.target.value)}
-                            className="w-full sm:w-56 rounded-lg border px-3 py-2 text-sm"
+                            className="w-full rounded-lg border px-3 py-2 text-sm sm:w-56"
                           />
                           <button
                             onClick={saveEdit}
@@ -343,7 +385,7 @@ export default function CategoriasPanel({
 
                   {isOpen && (
                     <div className="mt-3 rounded-xl border bg-white">
-                      <div className="border-b px-4 py-3 flex items-center justify-between gap-2">
+                      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
                         <div className="text-sm font-medium">Produtos</div>
                         <button
                           className="rounded-lg bg-black px-3 py-2 text-sm text-white"
@@ -370,25 +412,29 @@ export default function CategoriasPanel({
                               p.unit as UnitOption,
                               p.packQty ?? null,
                             );
+
                             const colors = Array.isArray(p.colors)
                               ? p.colors
                               : [];
+
                             const brand = String(
                               (p as Product & { brand?: string }).brand ?? "",
                             ).trim();
+
                             const packTotalCents =
                               (p as ProductWithPackTotal).packPriceCents ??
                               null;
+
                             const isPack = needsPackQty(p.unit as UnitOption);
                             const unitCents = p.priceCents ?? null;
 
                             return (
                               <div
                                 key={p.id}
-                                className="px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+                                className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between"
                               >
                                 <div className="flex items-start gap-3">
-                                  <div className="h-12 w-12 rounded-lg bg-zinc-100 overflow-hidden flex items-center justify-center shrink-0">
+                                  <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-zinc-100">
                                     {p.imageUrls?.[0] ? (
                                       <img
                                         src={p.imageUrls[0]}
@@ -411,25 +457,25 @@ export default function CategoriasPanel({
                                       </span>
 
                                       {brand ? (
-                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
+                                        <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 ring-1 ring-zinc-600/10">
                                           Marca: {brand}
                                         </span>
                                       ) : null}
 
                                       {p.sku ? (
-                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
+                                        <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 ring-1 ring-zinc-600/10">
                                           Cod: {p.sku}
                                         </span>
                                       ) : null}
 
                                       {packInfo ? (
-                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
+                                        <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 ring-1 ring-zinc-600/10">
                                           {packInfo}
                                         </span>
                                       ) : null}
 
                                       {isPack && packTotalCents != null ? (
-                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
+                                        <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 ring-1 ring-zinc-600/10">
                                           Total {p.unit}:{" "}
                                           {formatCentsToBRLCurrency(
                                             packTotalCents,
@@ -438,17 +484,17 @@ export default function CategoriasPanel({
                                       ) : null}
 
                                       {unitCents != null ? (
-                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-700 ring-1 ring-zinc-600/10">
+                                        <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 ring-1 ring-zinc-600/10">
                                           {formatCentsToBRLCurrency(unitCents)}
                                         </span>
                                       ) : null}
 
                                       {p.active ? (
-                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20">
+                                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-600/20">
                                           Ativo
                                         </span>
                                       ) : (
-                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-600 ring-1 ring-zinc-600/10">
+                                        <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-600/10">
                                           Inativo
                                         </span>
                                       )}
@@ -459,7 +505,7 @@ export default function CategoriasPanel({
                                         {colors.map((cc) => (
                                           <span
                                             key={`${p.id}-${cc.name}`}
-                                            className="inline-flex items-center gap-2 rounded-full px-2 py-0.5 text-xs font-medium bg-white ring-1 ring-zinc-200"
+                                            className="inline-flex items-center gap-2 rounded-full bg-white px-2 py-0.5 text-xs font-medium ring-1 ring-zinc-200"
                                             title={cc.name}
                                           >
                                             <span
@@ -475,14 +521,14 @@ export default function CategoriasPanel({
                                     ) : null}
 
                                     {p.description ? (
-                                      <div className="mt-2 text-xs text-zinc-600 whitespace-pre-wrap">
+                                      <div className="mt-2 whitespace-pre-wrap text-xs text-zinc-600">
                                         {p.description}
                                       </div>
                                     ) : null}
                                   </div>
                                 </div>
 
-                                <div className="flex flex-wrap gap-2 justify-end">
+                                <div className="flex flex-wrap justify-end gap-2">
                                   <button
                                     onClick={() =>
                                       onEditProduct
@@ -519,8 +565,8 @@ export default function CategoriasPanel({
   }
 
   return (
-    <div className="relative left-1/2 -translate-x-1/2 w-[100dvw] px-4 lg:px-10 overflow-x-hidden">
-      <div className="grid gap-4 lg:grid-cols-2 items-start">
+    <div className="relative left-1/2 w-[100dvw] -translate-x-1/2 overflow-x-hidden px-4 lg:px-10">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         {renderColumn("Iluminação", "iluminacao", catsBySeg.ilum)}
         {renderColumn("Utensílios Domésticos", "utensilios", catsBySeg.uten)}
       </div>
