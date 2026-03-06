@@ -18,7 +18,7 @@ export default function Footer() {
 
         <div className="flex items-center gap-3">
           <a
-            href="https://wa.me/5511917690585"
+            href="https://wa.me/5511917690585?text=Ol%C3%A1%21%20Vim%20pelo%20cat%C3%A1logo%20da%20Coliseu."
             target="_blank"
             rel="noreferrer"
             aria-label="WhatsApp Coliseu Distribuidora"
