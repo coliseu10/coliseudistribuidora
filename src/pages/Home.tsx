@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { LayoutGrid, Rows3 } from "lucide-react";
 import { listProducts, type HomeSegment } from "../lib/produtos";
 import type { Product } from "../lib/produtos";
 
@@ -87,7 +88,7 @@ type LightboxState = {
   urls: string[];
   index: number;
   alt: string;
-  product: Product; // infos do card no lightbox
+  product: Product;
 };
 
 export default function Home() {
@@ -96,6 +97,9 @@ export default function Home() {
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
   const [segment, setSegment] = useState<HomeSegment | null>(null);
+  const [mobileGridMode, setMobileGridMode] = useState<"single" | "double">(
+    "single",
+  );
 
   const catBarRef = useRef<HTMLDivElement | null>(null);
   const [showCatFab, setShowCatFab] = useState(false);
@@ -303,7 +307,6 @@ export default function Home() {
           </div>
 
           <div className="mt-5 grid gap-6 md:grid-cols-2 lg:grid-cols-3 lg:px-10 items-center">
-            {/* contatos */}
             <div className="text-left">
               <div className="text-xl font-black text-orange-600">
                 CONTATOS:
@@ -427,7 +430,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* logo desktop */}
             <div className="hidden lg:flex justify-center">
               <img
                 src="/logo.jpg"
@@ -436,7 +438,6 @@ export default function Home() {
               />
             </div>
 
-            {/* entrega */}
             <div className="text-center md:text-right">
               <div className="text-base font-black text-blue-900">
                 ENTREGA PARA TODO TERRITÓRIO
@@ -453,7 +454,6 @@ export default function Home() {
                 ( SP - Capital )
               </div>
 
-              {/* logo mobile */}
               <div className="mt-6 flex justify-center md:justify-end lg:hidden">
                 <img
                   src="/logo.jpg"
@@ -465,7 +465,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* escolha do segmento */}
         {!segment && (
           <div className="mt-8 lg:px-10">
             <div className="flex items-start md:items-center">
@@ -513,21 +512,55 @@ export default function Home() {
         )}
 
         {segment && (
-          <div className="mt-8 lg:px-10 flex items-center justify-between gap-3">
+          <div className="mt-8 lg:px-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm font-black text-zinc-800">
               {segment === "iluminacao"
                 ? "Exibindo: Iluminação"
                 : "Exibindo: Utensílios Domésticos"}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setSegment(null)}
-              className="rounded-lg border-2 px-3 py-2 text-sm bg-white text-sky-400 font-black tracking-wide border-sky-400 hover:border-sky-600 hover:text-sky-600"
-              title="Trocar"
-            >
-              Trocar categoria
-            </button>
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
+              <div className="inline-flex sm:hidden rounded-xl border border-zinc-200 bg-white p-1 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setMobileGridMode("single")}
+                  className={[
+                    "inline-flex h-10 w-10 items-center justify-center rounded-lg transition",
+                    mobileGridMode === "single"
+                      ? "bg-sky-500 text-white"
+                      : "text-zinc-700 hover:bg-zinc-100",
+                  ].join(" ")}
+                  title="Exibir 1 produto por linha"
+                  aria-label="Exibir 1 produto por linha"
+                >
+                  <Rows3 className="h-5 w-5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMobileGridMode("double")}
+                  className={[
+                    "inline-flex h-10 w-10 items-center justify-center rounded-lg transition",
+                    mobileGridMode === "double"
+                      ? "bg-sky-500 text-white"
+                      : "text-zinc-700 hover:bg-zinc-100",
+                  ].join(" ")}
+                  title="Exibir 2 produtos por linha"
+                  aria-label="Exibir 2 produtos por linha"
+                >
+                  <LayoutGrid className="h-5 w-5" />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSegment(null)}
+                className="rounded-lg border-2 px-3 py-2 text-sm bg-white text-sky-400 font-black tracking-wide border-sky-400 hover:border-sky-600 hover:text-sky-600"
+                title="Trocar"
+              >
+                Trocar categoria
+              </button>
+            </div>
           </div>
         )}
 
@@ -593,7 +626,15 @@ export default function Home() {
                           {cat}
                         </h2>
 
-                        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                        <div
+                          className={[
+                            "mt-4 grid gap-4",
+                            mobileGridMode === "double"
+                              ? "grid-cols-2"
+                              : "grid-cols-1",
+                            "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
+                          ].join(" ")}
+                        >
                           {list.map((p) => {
                             const urls = getProductImages(p);
                             const firstImage = urls[0] ?? "";
@@ -609,6 +650,9 @@ export default function Home() {
                                 key={p.id}
                                 className={[
                                   "relative rounded-xl bg-white overflow-hidden border border-zinc-200 shadow-md transition hover:shadow-lg hover:-translate-y-0.5",
+                                  mobileGridMode === "double"
+                                    ? "sm:rounded-xl"
+                                    : "",
                                   p.active ? "" : "opacity-60 grayscale",
                                 ].join(" ")}
                               >
@@ -626,7 +670,14 @@ export default function Home() {
                                       className="group block w-full bg-white cursor-zoom-in"
                                       title="Clique para ampliar"
                                     >
-                                      <div className="h-48 w-full bg-white flex items-center justify-center">
+                                      <div
+                                        className={[
+                                          "w-full bg-white flex items-center justify-center",
+                                          mobileGridMode === "double"
+                                            ? "h-32 sm:h-48"
+                                            : "h-48",
+                                        ].join(" ")}
+                                      >
                                         <img
                                           src={firstImage}
                                           alt={p.name}
@@ -636,52 +687,99 @@ export default function Home() {
                                       </div>
                                     </button>
                                   ) : (
-                                    <div className="h-48 w-full bg-white" />
+                                    <div
+                                      className={[
+                                        "w-full bg-white",
+                                        mobileGridMode === "double"
+                                          ? "h-32 sm:h-48"
+                                          : "h-48",
+                                      ].join(" ")}
+                                    />
                                   )}
                                 </div>
 
-                                <div className="p-4">
+                                <div
+                                  className={
+                                    mobileGridMode === "double"
+                                      ? "p-2.5 sm:p-4"
+                                      : "p-4"
+                                  }
+                                >
                                   <div className="min-w-0">
-                                    <div className="font-black text-zinc-700 leading-snug line-clamp-2">
+                                    <div
+                                      className={[
+                                        "font-black text-zinc-700 leading-snug line-clamp-2",
+                                        mobileGridMode === "double"
+                                          ? "text-[13px] sm:text-base"
+                                          : "",
+                                      ].join(" ")}
+                                    >
                                       {p.name}
                                     </div>
 
-                                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                                      {brand ? (
-                                        <span className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-black text-zinc-700 ring-1 ring-zinc-700/10">
-                                          <span className="text-[11px]">
-                                            MARCA:
-                                          </span>
-                                          <span className="font-black tracking-wide">
-                                            {brand}
-                                          </span>
-                                        </span>
-                                      ) : null}
+                                    <div
+  className={[
+    "mt-2 flex flex-col items-start",
+    mobileGridMode === "double" ? "gap-1.5" : "gap-2",
+  ].join(" ")}
+>
+  {brand ? (
+    <span
+      className={[
+        "inline-flex max-w-full items-center rounded-full bg-zinc-100 font-black text-zinc-700 ring-1 ring-zinc-700/10",
+        mobileGridMode === "double"
+          ? "gap-1 px-2 py-1 text-[10px]"
+          : "gap-2 px-2.5 py-1 text-xs",
+      ].join(" ")}
+    >
+      <span className="text-[11px] shrink-0">MARCA:</span>
+      <span className="font-black tracking-wide truncate max-w-full">
+        {brand}
+      </span>
+    </span>
+  ) : null}
 
-                                      {p.sku?.trim() ? (
-                                        <span className="ml-auto inline-flex items-center gap-2 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-black text-blue-900 ring-1 ring-blue-900/10">
-                                          <span className="text-[11px]">
-                                            CÓDIGO:
-                                          </span>
-                                          <span className="font-black tracking-wide">
-                                            {p.sku}
-                                          </span>
-                                        </span>
-                                      ) : null}
+  {p.sku?.trim() ? (
+    <span
+      className={[
+        "inline-flex max-w-full items-center rounded-full bg-blue-50 font-black text-blue-900 ring-1 ring-blue-900/10",
+        mobileGridMode === "double"
+          ? "gap-1 px-2 py-1 text-[10px]"
+          : "gap-2 px-2.5 py-1 text-xs",
+      ].join(" ")}
+    >
+      <span className="text-[11px] shrink-0">CÓDIGO:</span>
+      <span className="font-black tracking-wide break-all">
+        {p.sku}
+      </span>
+    </span>
+  ) : null}
 
-                                      {!brand && !p.sku?.trim() ? (
-                                        <span className="text-xs text-zinc-600">
-                                          &nbsp;
-                                        </span>
-                                      ) : null}
-                                    </div>
+  {!brand && !p.sku?.trim() ? (
+    <span className="text-xs text-zinc-600">&nbsp;</span>
+  ) : null}
+</div>
 
                                     {p.description ? (
-                                      <div className="mt-3 rounded-xl bg-zinc-50 px-3 py-2 transition">
+                                      <div
+                                        className={[
+                                          "mt-3 rounded-xl bg-zinc-50 transition",
+                                          mobileGridMode === "double"
+                                            ? "px-2 py-2"
+                                            : "px-3 py-2",
+                                        ].join(" ")}
+                                      >
                                         <div className="text-[11px] font-black text-zinc-700">
                                           DESCRIÇÃO
                                         </div>
-                                        <div className="mt-1 text-xs text-zinc-900 leading-relaxed line-clamp-4">
+                                        <div
+                                          className={[
+                                            "mt-1 text-zinc-900 leading-relaxed",
+                                            mobileGridMode === "double"
+                                              ? "text-[11px] line-clamp-3"
+                                              : "text-xs line-clamp-4",
+                                          ].join(" ")}
+                                        >
                                           {p.description}
                                         </div>
                                       </div>
@@ -729,7 +827,14 @@ export default function Home() {
                                         </div>
                                       </div>
 
-                                      <div className="grid grid-cols-2 gap-3">
+                                      <div
+                                        className={[
+                                          "grid gap-3",
+                                          mobileGridMode === "double"
+                                            ? "grid-cols-1 sm:grid-cols-2"
+                                            : "grid-cols-2",
+                                        ].join(" ")}
+                                      >
                                         <div className="rounded-xl bg-zinc-50 px-3 py-2">
                                           <div className="text-[11px] font-black text-zinc-700">
                                             EMBALAGEM
@@ -750,7 +855,6 @@ export default function Home() {
                                             const packText =
                                               formatPriceCents(packTotalCents);
 
-                                            // ✅ se não tem nenhum preço relevante, não mostra labels
                                             if (
                                               !unitText &&
                                               (!isPack || !packText)
@@ -758,7 +862,6 @@ export default function Home() {
                                               return <span>&nbsp;</span>;
                                             }
 
-                                            // ✅ se for pack e só tiver caixa, mostra só a caixa
                                             if (isPack && !unitText && packText) {
                                               return (
                                                 <>
@@ -823,7 +926,6 @@ export default function Home() {
         )}
       </div>
 
-      {/* botao flutuante */}
       {segment && showCatFab && categoryLinks.length > 0 && (
         <>
           {catFabOpen && (
@@ -892,7 +994,6 @@ export default function Home() {
         </>
       )}
 
-      {/* lightbox */}
       {lightbox && (
         <LightboxML
           lightbox={lightbox}
@@ -910,11 +1011,6 @@ export default function Home() {
   );
 }
 
-/* ===========================
-    LIGHTBOX
-   - Mobile (<=1023): overlay transparente (glass)
-   - Desktop (>=1024): full screen branco
-=========================== */
 function LightboxML(props: {
   lightbox: LightboxState;
   setLightbox: React.Dispatch<React.SetStateAction<LightboxState | null>>;
