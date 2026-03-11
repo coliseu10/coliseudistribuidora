@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LayoutGrid, Rows3 } from "lucide-react";
+import {
+  LayoutGrid,
+  Rows3,
+  ChevronsUpDown,
+} from "lucide-react";
 import { listProducts, type HomeSegment } from "../lib/produtos";
 import type { Product } from "../lib/produtos";
 
@@ -59,6 +63,18 @@ function normCat(s: string) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+function getSegmentFromUrl(): HomeSegment | null {
+  if (typeof window === "undefined") return null;
+
+  const params = new URLSearchParams(window.location.search);
+  const value = params.get("segment");
+
+  if (value === "iluminacao") return "iluminacao";
+  if (value === "utensilios") return "utensilios";
+
+  return null;
+}
+
 const CONTACTS = {
   phones: [
     {
@@ -96,7 +112,9 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
-  const [segment, setSegment] = useState<HomeSegment | null>(null);
+  const [segment, setSegment] = useState<HomeSegment | null>(() =>
+    getSegmentFromUrl(),
+  );
   const [mobileGridMode, setMobileGridMode] = useState<"single" | "double">(
     "single",
   );
@@ -125,6 +143,40 @@ export default function Home() {
       setAllCategories(cats);
     })();
   }, []);
+
+  useEffect(() => {
+    function handlePopState() {
+      setSegment(getSegmentFromUrl());
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  function updateUrlSegment(next: HomeSegment | null) {
+    const url = new URL(window.location.href);
+
+    if (next) {
+      url.searchParams.set("segment", next);
+    } else {
+      url.searchParams.delete("segment");
+      url.hash = "";
+    }
+
+    history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  function changeSegment(next: HomeSegment | null) {
+    setSegment(next);
+    setCatFabOpen(false);
+    updateUrlSegment(next);
+
+    if (next) {
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!segment) return [];
@@ -179,6 +231,43 @@ export default function Home() {
   );
 
   useEffect(() => {
+    if (!segment) return;
+
+    const reduceMotion = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    )?.matches;
+
+    const run = () => {
+      const hash = window.location.hash?.replace("#", "").trim();
+
+      if (hash) {
+        const section = document.getElementById(hash);
+        if (section) {
+          section.scrollIntoView({
+            behavior: reduceMotion ? "auto" : "smooth",
+            block: "start",
+          });
+          return;
+        }
+      }
+
+      const el = catBarRef.current;
+      if (!el) return;
+
+      el.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "start",
+      });
+    };
+
+    const id1 = requestAnimationFrame(() => {
+      requestAnimationFrame(run);
+    });
+
+    return () => cancelAnimationFrame(id1);
+  }, [segment, groups.length]);
+
+  useEffect(() => {
     const el = catBarRef.current;
     if (!el) return;
     if (!("IntersectionObserver" in window)) return;
@@ -214,7 +303,9 @@ export default function Home() {
       "(prefers-reduced-motion: reduce)",
     )?.matches;
 
-    history.replaceState(null, "", `#${id}`);
+    const url = new URL(window.location.href);
+    url.hash = id;
+    history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 
     if (reduceMotion) {
       el.scrollIntoView({ behavior: "auto", block: "start" });
@@ -471,7 +562,7 @@ export default function Home() {
               <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-6">
                 <button
                   type="button"
-                  onClick={() => setSegment("iluminacao")}
+                  onClick={() => changeSegment("iluminacao")}
                   className="group relative overflow-hidden rounded-2xl border bg-white shadow-sm"
                 >
                   <img
@@ -490,7 +581,7 @@ export default function Home() {
 
                 <button
                   type="button"
-                  onClick={() => setSegment("utensilios")}
+                  onClick={() => changeSegment("utensilios")}
                   className="group relative overflow-hidden rounded-2xl border bg-white shadow-sm"
                 >
                   <img
@@ -554,7 +645,7 @@ export default function Home() {
 
               <button
                 type="button"
-                onClick={() => setSegment(null)}
+                onClick={() => changeSegment(null)}
                 className="rounded-lg border-2 px-3 py-2 text-sm bg-white text-sky-400 font-black tracking-wide border-sky-400 hover:border-sky-600 hover:text-sky-600"
                 title="Trocar"
               >
@@ -568,6 +659,7 @@ export default function Home() {
           <>
             <div
               ref={catBarRef}
+              data-products-start="true"
               className="relative left-1/2 right-1/2 -mx-[50vw] w-screen mt-8"
               style={{
                 background:
@@ -718,47 +810,55 @@ export default function Home() {
                                     </div>
 
                                     <div
-  className={[
-    "mt-2 flex flex-col items-start",
-    mobileGridMode === "double" ? "gap-1.5" : "gap-2",
-  ].join(" ")}
->
-  {brand ? (
-    <span
-      className={[
-        "inline-flex max-w-full items-center rounded-full bg-zinc-100 font-black text-zinc-700 ring-1 ring-zinc-700/10",
-        mobileGridMode === "double"
-          ? "gap-1 px-2 py-1 text-[10px]"
-          : "gap-2 px-2.5 py-1 text-xs",
-      ].join(" ")}
-    >
-      <span className="text-[11px] shrink-0">MARCA:</span>
-      <span className="font-black tracking-wide truncate max-w-full">
-        {brand}
-      </span>
-    </span>
-  ) : null}
+                                      className={[
+                                        "mt-2 flex flex-col items-start",
+                                        mobileGridMode === "double"
+                                          ? "gap-1.5"
+                                          : "gap-2",
+                                      ].join(" ")}
+                                    >
+                                      {brand ? (
+                                        <span
+                                          className={[
+                                            "inline-flex max-w-full items-center rounded-full bg-zinc-100 font-black text-zinc-700 ring-1 ring-zinc-700/10",
+                                            mobileGridMode === "double"
+                                              ? "gap-1 px-2 py-1 text-[10px]"
+                                              : "gap-2 px-2.5 py-1 text-xs",
+                                          ].join(" ")}
+                                        >
+                                          <span className="text-[11px] shrink-0">
+                                            MARCA:
+                                          </span>
+                                          <span className="font-black tracking-wide truncate max-w-full">
+                                            {brand}
+                                          </span>
+                                        </span>
+                                      ) : null}
 
-  {p.sku?.trim() ? (
-    <span
-      className={[
-        "inline-flex max-w-full items-center rounded-full bg-blue-50 font-black text-blue-900 ring-1 ring-blue-900/10",
-        mobileGridMode === "double"
-          ? "gap-1 px-2 py-1 text-[10px]"
-          : "gap-2 px-2.5 py-1 text-xs",
-      ].join(" ")}
-    >
-      <span className="text-[11px] shrink-0">CÓDIGO:</span>
-      <span className="font-black tracking-wide break-all">
-        {p.sku}
-      </span>
-    </span>
-  ) : null}
+                                      {p.sku?.trim() ? (
+                                        <span
+                                          className={[
+                                            "inline-flex max-w-full items-center rounded-full bg-blue-50 font-black text-blue-900 ring-1 ring-blue-900/10",
+                                            mobileGridMode === "double"
+                                              ? "gap-1 px-2 py-1 text-[10px]"
+                                              : "gap-2 px-2.5 py-1 text-xs",
+                                          ].join(" ")}
+                                        >
+                                          <span className="text-[11px] shrink-0">
+                                            CÓDIGO:
+                                          </span>
+                                          <span className="font-black tracking-wide break-all">
+                                            {p.sku}
+                                          </span>
+                                        </span>
+                                      ) : null}
 
-  {!brand && !p.sku?.trim() ? (
-    <span className="text-xs text-zinc-600">&nbsp;</span>
-  ) : null}
-</div>
+                                      {!brand && !p.sku?.trim() ? (
+                                        <span className="text-xs text-zinc-600">
+                                          &nbsp;
+                                        </span>
+                                      ) : null}
+                                    </div>
 
                                     {p.description ? (
                                       <div
@@ -947,7 +1047,7 @@ export default function Home() {
                 title="Categorias"
               >
                 <span className="inline-flex items-center gap-2">
-                  <span className="text-2xl sm:text-lg leading-none">↕</span>
+                  <ChevronsUpDown className="h-5 w-5 sm:h-5 sm:w-5" />
                   <span className="hidden sm:inline">Categorias</span>
                 </span>
               </button>
