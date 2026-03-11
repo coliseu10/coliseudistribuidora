@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  LayoutGrid,
-  Rows3,
-  ChevronsUpDown,
-} from "lucide-react";
+import { LayoutGrid, Rows3, ChevronsUp, ChevronsDown } from "lucide-react";
 import { listProducts, type HomeSegment } from "../lib/produtos";
 import type { Product } from "../lib/produtos";
-
 import { listCategories, type Category } from "../lib/categorias";
 
 type UnitOption = "Unidade" | "Kit" | "Meia Caixa" | "Caixa Fechada" | "";
@@ -122,6 +117,7 @@ export default function Home() {
   const catBarRef = useRef<HTMLDivElement | null>(null);
   const [showCatFab, setShowCatFab] = useState(false);
   const [catFabOpen, setCatFabOpen] = useState(false);
+  const [showCatHint, setShowCatHint] = useState(false);
 
   const [allCategories, setAllCategories] = useState<Category[]>([]);
 
@@ -152,6 +148,21 @@ export default function Home() {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+
+  useEffect(() => {
+    if (!showCatFab || catFabOpen) {
+      setShowCatHint(false);
+      return;
+    }
+
+    setShowCatHint(true);
+
+    const timer = window.setTimeout(() => {
+      setShowCatHint(false);
+    }, 3000);
+
+    return () => window.clearTimeout(timer);
+  }, [showCatFab, catFabOpen]);
 
   function updateUrlSegment(next: HomeSegment | null) {
     const url = new URL(window.location.href);
@@ -200,8 +211,8 @@ export default function Home() {
     for (const p of filtered) {
       const raw = (p.category ?? "").trim();
       if (!raw) continue;
-      const key = normCat(raw);
 
+      const key = normCat(raw);
       const meta = catIndex.get(key);
       if (!meta) continue;
 
@@ -291,6 +302,7 @@ export default function Home() {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setCatFabOpen(false);
     }
+
     if (catFabOpen) window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [catFabOpen]);
@@ -324,7 +336,6 @@ export default function Home() {
 
     const diff = targetY - startY;
     const distance = Math.abs(diff);
-
     const duration = Math.min(4500, Math.max(1800, distance * 2.0));
 
     const easeInOutCubic = (t: number) =>
@@ -380,7 +391,7 @@ export default function Home() {
 
   return (
     <div className="bg-white overflow-x-hidden">
-      <div className="w-full px-4 py-6 lg:px-0 pb-6">
+      <div className="w-full px-4 py-6 pb-6 lg:px-0">
         <div className="bg-white">
           <div className="text-center leading-tight">
             <div className="text-4xl font-black tracking-wide">
@@ -397,11 +408,9 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-6 md:grid-cols-2 lg:grid-cols-3 lg:px-10 items-center">
+          <div className="mt-5 grid items-center gap-6 md:grid-cols-2 lg:grid-cols-3 lg:px-10">
             <div className="text-left">
-              <div className="text-xl font-black text-orange-600">
-                CONTATOS:
-              </div>
+              <div className="text-xl font-black text-orange-600">CONTATOS:</div>
 
               <div className="mt-3 space-y-2">
                 {CONTACTS.phones.map((p) => {
@@ -469,7 +478,7 @@ export default function Home() {
                     href={`mailto:${e}?subject=${encodeURIComponent(
                       "Contato - Catálogo Coliseu",
                     )}`}
-                    className="block font-bold text-zinc-900 break-all hover:opacity-90"
+                    className="block break-all font-bold text-zinc-900 hover:opacity-90"
                     title="Enviar e-mail"
                   >
                     <span className="inline-flex items-center gap-2">
@@ -497,10 +506,10 @@ export default function Home() {
                   className="hover:opacity-90"
                   title="Abrir site"
                 >
-                  <span className="flex items-center gap-2 min-w-0">
+                  <span className="flex min-w-0 items-center gap-2">
                     <svg
                       viewBox="0 0 24 24"
-                      className="h-4 w-4 text-blue-900 shrink-0"
+                      className="h-4 w-4 shrink-0 text-blue-900"
                       aria-hidden="true"
                     >
                       <path
@@ -509,11 +518,11 @@ export default function Home() {
                       />
                     </svg>
 
-                    <span className="text-zinc-900 font-extrabold whitespace-nowrap shrink-0">
+                    <span className="shrink-0 whitespace-nowrap font-extrabold text-zinc-900">
                       Compre pelo site:
                     </span>
 
-                    <span className="min-w-0 flex-1 text-orange-600 font-black truncate">
+                    <span className="min-w-0 flex-1 truncate font-black text-orange-600">
                       {CONTACTS.site}
                     </span>
                   </span>
@@ -521,7 +530,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="hidden lg:flex justify-center">
+            <div className="hidden justify-center lg:flex">
               <img
                 src="/logo.jpg"
                 alt="Distribuidora Coliseu"
@@ -559,7 +568,7 @@ export default function Home() {
         {!segment && (
           <div className="mt-8 lg:px-10">
             <div className="flex items-start md:items-center">
-              <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid w-full grid-cols-1 gap-6 md:grid-cols-2">
                 <button
                   type="button"
                   onClick={() => changeSegment("iluminacao")}
@@ -568,12 +577,12 @@ export default function Home() {
                   <img
                     src="/ilumicao.png"
                     alt="Iluminação"
-                    className="w-full object-cover transition group-hover:scale-105 h-[210px] sm:h-[280px] lg:h-[360px] 2xl:h-[400px]"
+                    className="h-[210px] w-full object-cover transition group-hover:scale-105 sm:h-[280px] lg:h-[360px] 2xl:h-[400px]"
                     loading="lazy"
                   />
                   <div className="absolute inset-0 bg-black/35" />
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="rounded-full bg-white/15 px-6 py-3 text-white font-black text-3xl uppercase tracking-wide">
+                    <div className="rounded-full bg-white/15 px-6 py-3 text-3xl font-black uppercase tracking-wide text-white">
                       Iluminação
                     </div>
                   </div>
@@ -587,12 +596,12 @@ export default function Home() {
                   <img
                     src="/utensilio.png"
                     alt="Utensílios Domésticos"
-                    className="w-full object-cover transition group-hover:scale-105 h-[210px] sm:h-[280px] lg:h-[360px] 2xl:h-[400px]"
+                    className="h-[210px] w-full object-cover transition group-hover:scale-105 sm:h-[280px] lg:h-[360px] 2xl:h-[400px]"
                     loading="lazy"
                   />
                   <div className="absolute inset-0 bg-black/35" />
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="rounded-full bg-white/15 px-6 py-3 text-white font-black text-3xl uppercase tracking-wide">
+                    <div className="rounded-full bg-white/15 px-6 py-3 text-3xl font-black uppercase tracking-wide text-white">
                       Utensílios Domésticos
                     </div>
                   </div>
@@ -603,7 +612,7 @@ export default function Home() {
         )}
 
         {segment && (
-          <div className="mt-8 lg:px-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-8 flex flex-col gap-3 lg:px-10 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm font-black text-zinc-800">
               {segment === "iluminacao"
                 ? "Exibindo: Iluminação"
@@ -611,7 +620,7 @@ export default function Home() {
             </div>
 
             <div className="flex items-center justify-between gap-3 sm:justify-end">
-              <div className="inline-flex sm:hidden rounded-xl border border-zinc-200 bg-white p-1 shadow-sm">
+              <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1 shadow-sm sm:hidden">
                 <button
                   type="button"
                   onClick={() => setMobileGridMode("single")}
@@ -646,7 +655,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => changeSegment(null)}
-                className="rounded-lg border-2 px-3 py-2 text-sm bg-white text-sky-400 font-black tracking-wide border-sky-400 hover:border-sky-600 hover:text-sky-600"
+                className="rounded-lg border-2 border-sky-400 bg-white px-3 py-2 text-sm font-black tracking-wide text-sky-400 hover:border-sky-600 hover:text-sky-600"
                 title="Trocar"
               >
                 Trocar categoria
@@ -660,14 +669,14 @@ export default function Home() {
             <div
               ref={catBarRef}
               data-products-start="true"
-              className="relative left-1/2 right-1/2 -mx-[50vw] w-screen mt-8"
+              className="relative left-1/2 right-1/2 mt-8 -mx-[50vw] w-screen"
               style={{
                 background:
                   "linear-gradient(90deg, rgb(11,44,112) 0%, rgb(24,88,180) 40%, rgb(255,122,0) 100%)",
               }}
             >
-              <div className="w-full px-4 py-6 lg:px-10 flex flex-col items-center gap-4">
-                <div className="text-white font-black uppercase tracking-wide text-base sm:text-lg text-center">
+              <div className="flex w-full flex-col items-center gap-4 px-4 py-6 lg:px-10">
+                <div className="text-center text-base font-black uppercase tracking-wide text-white sm:text-lg">
                   Encontre por categoria
                 </div>
 
@@ -706,10 +715,10 @@ export default function Home() {
                       <section
                         key={cat}
                         id={sectionId}
-                        className="bg-white scroll-mt-8"
+                        className="scroll-mt-8 bg-white"
                       >
                         <h2
-                          className="relative left-1/2 right-1/2 -mx-[50vw] w-screen text-center py-3 text-lg sm:text-xl font-black uppercase tracking-wide text-white"
+                          className="relative left-1/2 right-1/2 -mx-[50vw] w-screen py-3 text-center text-lg font-black uppercase tracking-wide text-white sm:text-xl"
                           style={{
                             background:
                               "linear-gradient(90deg, rgb(11,44,112) 0%, rgb(24,88,180) 45%, rgb(255,122,0) 100%)",
@@ -741,15 +750,15 @@ export default function Home() {
                               <article
                                 key={p.id}
                                 className={[
-                                  "relative rounded-xl bg-white overflow-hidden border border-zinc-200 shadow-md transition hover:shadow-lg hover:-translate-y-0.5",
+                                  "relative overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg",
                                   mobileGridMode === "double"
                                     ? "sm:rounded-xl"
                                     : "",
-                                  p.active ? "" : "opacity-60 grayscale",
+                                  p.active ? "" : "grayscale opacity-60",
                                 ].join(" ")}
                               >
                                 {!p.active && (
-                                  <div className="absolute top-3 left-3 z-10 rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">
+                                  <div className="absolute left-3 top-3 z-10 rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">
                                     Indisponível
                                   </div>
                                 )}
@@ -759,12 +768,12 @@ export default function Home() {
                                     <button
                                       type="button"
                                       onClick={() => openLightbox(p)}
-                                      className="group block w-full bg-white cursor-zoom-in"
+                                      className="group block w-full cursor-zoom-in bg-white"
                                       title="Clique para ampliar"
                                     >
                                       <div
                                         className={[
-                                          "w-full bg-white flex items-center justify-center",
+                                          "flex w-full items-center justify-center bg-white",
                                           mobileGridMode === "double"
                                             ? "h-32 sm:h-48"
                                             : "h-48",
@@ -800,7 +809,7 @@ export default function Home() {
                                   <div className="min-w-0">
                                     <div
                                       className={[
-                                        "font-black text-zinc-700 leading-snug line-clamp-2",
+                                        "line-clamp-2 leading-snug font-black text-zinc-700",
                                         mobileGridMode === "double"
                                           ? "text-[13px] sm:text-base"
                                           : "",
@@ -826,10 +835,10 @@ export default function Home() {
                                               : "gap-2 px-2.5 py-1 text-xs",
                                           ].join(" ")}
                                         >
-                                          <span className="text-[11px] shrink-0">
+                                          <span className="shrink-0 text-[11px]">
                                             MARCA:
                                           </span>
-                                          <span className="font-black tracking-wide truncate max-w-full">
+                                          <span className="max-w-full truncate font-black tracking-wide">
                                             {brand}
                                           </span>
                                         </span>
@@ -844,10 +853,10 @@ export default function Home() {
                                               : "gap-2 px-2.5 py-1 text-xs",
                                           ].join(" ")}
                                         >
-                                          <span className="text-[11px] shrink-0">
+                                          <span className="shrink-0 text-[11px]">
                                             CÓDIGO:
                                           </span>
-                                          <span className="font-black tracking-wide break-all">
+                                          <span className="break-all font-black tracking-wide">
                                             {p.sku}
                                           </span>
                                         </span>
@@ -874,10 +883,10 @@ export default function Home() {
                                         </div>
                                         <div
                                           className={[
-                                            "mt-1 text-zinc-900 leading-relaxed",
+                                            "mt-1 leading-relaxed text-zinc-900",
                                             mobileGridMode === "double"
-                                              ? "text-[11px] line-clamp-3"
-                                              : "text-xs line-clamp-4",
+                                              ? "line-clamp-3 text-[11px]"
+                                              : "line-clamp-4 text-xs",
                                           ].join(" ")}
                                         >
                                           {p.description}
@@ -894,13 +903,13 @@ export default function Home() {
                                     <div className="grid grid-cols-1 gap-2">
                                       <div className="rounded-xl bg-zinc-50 px-3 py-2">
                                         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                                          <div className="text-[11px] font-black text-zinc-700 shrink-0">
+                                          <div className="shrink-0 text-[11px] font-black text-zinc-700">
                                             COR:
                                           </div>
 
                                           {Array.isArray(p.colors) &&
                                           p.colors.length ? (
-                                            <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                            <div className="flex min-w-0 flex-wrap items-center gap-2">
                                               {p.colors.slice(0, 6).map((c) => (
                                                 <span
                                                   key={`${p.id}-${c.name}`}
@@ -908,7 +917,7 @@ export default function Home() {
                                                   title={c.name}
                                                 >
                                                   <span
-                                                    className="h-3 w-3 rounded-full ring-1 ring-black/20 shrink-0"
+                                                    className="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/20"
                                                     style={{
                                                       backgroundColor: c.hex,
                                                     }}
@@ -939,7 +948,7 @@ export default function Home() {
                                           <div className="text-[11px] font-black text-zinc-700">
                                             EMBALAGEM
                                           </div>
-                                          <div className="mt-1 font-semibold leading-tight line-clamp-2">
+                                          <div className="mt-1 line-clamp-2 font-semibold leading-tight">
                                             {formatPack(
                                               p.unit ?? "",
                                               p.packQty ?? null,
@@ -962,7 +971,11 @@ export default function Home() {
                                               return <span>&nbsp;</span>;
                                             }
 
-                                            if (isPack && !unitText && packText) {
+                                            if (
+                                              isPack &&
+                                              !unitText &&
+                                              packText
+                                            ) {
                                               return (
                                                 <>
                                                   <div className="text-[11px] font-black text-zinc-700">
@@ -1036,27 +1049,35 @@ export default function Home() {
             />
           )}
 
-          <div className="fixed right-4 z-40 bottom-20 sm:bottom-4">
+          <div className="fixed right-3 top-[58%] z-40 -translate-y-1/2 sm:right-3 sm:top-1/2 md:right-4 md:top-1/2 lg:right-0 lg:top-1/2">
             {!catFabOpen && (
-              <button
-                type="button"
-                onClick={() => setCatFabOpen(true)}
-                className="rounded-full px-4 py-3 text-sm font-black shadow-lg border-2 bg-white text-sky-600 border-sky-400 hover:border-sky-600 hover:text-sky-700"
-                aria-expanded={false}
-                aria-controls="cat-fab-panel"
-                title="Categorias"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <ChevronsUpDown className="h-5 w-5 sm:h-5 sm:w-5" />
-                  <span className="hidden sm:inline">Categorias</span>
-                </span>
-              </button>
+              <div className="flex items-center gap-2">
+                {showCatHint && (
+                  <div className="whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-black text-sky-600 shadow-md">
+                    Ver categorias
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setCatFabOpen(true)}
+                  className="border-0 bg-transparent p-0 text-sky-600 shadow-none hover:text-sky-900"
+                  aria-expanded={false}
+                  aria-controls="cat-fab-panel"
+                  title="Categorias"
+                >
+                  <span className="flex flex-col items-center justify-center leading-none">
+                    <ChevronsUp className="h-10 w-10" />
+                    <ChevronsDown className="-mt-1 h-10 w-10" />
+                  </span>
+                </button>
+              </div>
             )}
 
             {catFabOpen && (
               <div
                 id="cat-fab-panel"
-                className="w-[min(92vw,420px)] rounded-2xl border-2 border-sky-400 bg-white shadow-xl overflow-hidden"
+                className="w-[min(92vw,420px)] overflow-hidden rounded-2xl border-2 border-sky-400 bg-white shadow-xl"
               >
                 <div className="flex items-center justify-between border-b border-sky-200 px-4 py-3">
                   <div className="text-sm font-black text-sky-700">
@@ -1072,7 +1093,7 @@ export default function Home() {
                   </button>
                 </div>
 
-                <div className="p-3 flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 p-3">
                   {categoryLinks.map(({ cat, id }) => (
                     <button
                       key={id}
@@ -1161,11 +1182,13 @@ function LightboxML(props: {
         if (zoomOpen) setZoomOpen(false);
         else closeLightbox();
       }
+
       if (!zoomOpen) {
         if (e.key === "ArrowRight") nextImage();
         if (e.key === "ArrowLeft") prevImage();
       }
     }
+
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [zoomOpen, closeLightbox, nextImage, prevImage]);
@@ -1189,7 +1212,6 @@ function LightboxML(props: {
       body.style.position = prevPosition;
       body.style.top = prevTop;
       body.style.width = prevWidth;
-
       window.scrollTo(0, scrollY);
     };
   }, []);
@@ -1199,16 +1221,16 @@ function LightboxML(props: {
 
   const MobilePage = (
     <div
-      className="fixed inset-0 z-50 bg-black/80 flex flex-col"
+      className="fixed inset-0 z-50 flex flex-col bg-black/80"
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="sticky top-0 z-10 px-3 pb-3 pt-4 flex items-center justify-between gap-3 bg-black/40 backdrop-blur-md shrink-0"
+        className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-3 bg-black/40 px-3 pb-3 pt-4 backdrop-blur-md"
         style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}
       >
-        <div className="min-w-0 pt-3 pl-3 pr-1">
-          <div className="text-white font-black text-sm leading-tight line-clamp-2">
+        <div className="min-w-0 pl-3 pr-1 pt-3">
+          <div className="line-clamp-2 text-sm font-black leading-tight text-white">
             {lightbox.alt}
           </div>
         </div>
@@ -1216,7 +1238,7 @@ function LightboxML(props: {
         <button
           type="button"
           onClick={closeLightbox}
-          className="shrink-0 rounded-lg bg-white/15 px-3 py-1.5 text-white font-black hover:bg-white/25"
+          className="shrink-0 rounded-lg bg-white/15 px-3 py-1.5 font-black text-white hover:bg-white/25"
           aria-label="Fechar"
           title="Fechar"
         >
@@ -1235,11 +1257,11 @@ function LightboxML(props: {
         }}
       >
         <div className="px-3">
-          <div className="relative w-full rounded-xl border border-white/15 bg-white overflow-hidden shadow-xl">
+          <div className="relative w-full overflow-hidden rounded-xl border border-white/15 bg-white shadow-xl">
             <button
               type="button"
               onClick={() => setZoomOpen(true)}
-              className="w-full h-[44vh] min-h-[260px] flex items-center justify-center cursor-zoom-in"
+              className="flex h-[44vh] min-h-[260px] w-full cursor-zoom-in items-center justify-center"
               title="Clique para ampliar"
             >
               <img
@@ -1257,7 +1279,7 @@ function LightboxML(props: {
                   type="button"
                   onClick={prevImage}
                   disabled={lightbox.index === 0}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 z-10 rounded-full bg-white/90 p-2 shadow disabled:opacity-30"
+                  className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/90 p-2 shadow disabled:opacity-30"
                   title="Anterior"
                   aria-label="Anterior"
                 >
@@ -1277,7 +1299,7 @@ function LightboxML(props: {
                   type="button"
                   onClick={nextImage}
                   disabled={lightbox.index >= lightbox.urls.length - 1}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 z-10 rounded-full bg-white/90 p-2 shadow disabled:opacity-30"
+                  className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/90 p-2 shadow disabled:opacity-30"
                   title="Próxima"
                   aria-label="Próxima"
                 >
@@ -1302,11 +1324,9 @@ function LightboxML(props: {
                 <button
                   key={`${u}-${i}`}
                   type="button"
-                  onClick={() =>
-                    setLightbox((s) => (s ? { ...s, index: i } : s))
-                  }
+                  onClick={() => setLightbox((s) => (s ? { ...s, index: i } : s))}
                   className={[
-                    "shrink-0 h-16 w-16 rounded-xl overflow-hidden flex items-center justify-center",
+                    "flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl",
                     "border-2 bg-white",
                     i === lightbox.index ? "border-sky-500" : "border-white/30",
                   ].join(" ")}
@@ -1325,16 +1345,16 @@ function LightboxML(props: {
           )}
         </div>
 
-        <div className="px-3 py-4 space-y-3 text-white">
+        <div className="space-y-3 px-3 py-4 text-white">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {brand ? (
-              <div className="w-full rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+              <div className="w-full rounded-xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-md">
                 <div className="flex items-center justify-start gap-3">
                   <span className="rounded-md bg-white/15 px-2 py-0.5 text-[11px] font-black text-white ring-1 ring-white/10">
                     MARCA:
                   </span>
 
-                  <span className="text-sm font-black text-white truncate">
+                  <span className="truncate text-sm font-black text-white">
                     {brand}
                   </span>
                 </div>
@@ -1343,7 +1363,7 @@ function LightboxML(props: {
           </div>
 
           {lightbox.product.sku?.trim() ? (
-            <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+            <div className="rounded-xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-md">
               <div className="inline-flex items-center gap-2">
                 <span className="rounded-md bg-white/15 px-2 py-0.5 text-[11px] font-black text-white ring-1 ring-white/10">
                   CÓDIGO:
@@ -1356,17 +1376,17 @@ function LightboxML(props: {
           ) : null}
 
           {lightbox.product.description ? (
-            <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+            <div className="rounded-xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-md">
               <div className="text-[11px] font-black text-white/90">
                 DESCRIÇÃO
               </div>
-              <div className="mt-1 text-sm text-white leading-relaxed">
+              <div className="mt-1 text-sm leading-relaxed text-white">
                 {lightbox.product.description}
               </div>
             </div>
           ) : null}
 
-          <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+          <div className="rounded-xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-md">
             <div className="text-[11px] font-black text-white/90">COR</div>
 
             {Array.isArray(lightbox.product.colors) &&
@@ -1379,10 +1399,12 @@ function LightboxML(props: {
                     title={c.name}
                   >
                     <span
-                      className="h-3 w-3 rounded-full ring-1 ring-black/25 shrink-0"
+                      className="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/25"
                       style={{ backgroundColor: c.hex }}
                     />
-                    <span className="whitespace-nowrap text-white">{c.name}</span>
+                    <span className="whitespace-nowrap text-white">
+                      {c.name}
+                    </span>
                   </span>
                 ))}
               </div>
@@ -1392,11 +1414,11 @@ function LightboxML(props: {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+            <div className="rounded-xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-md">
               <div className="text-[11px] font-black text-white/90">
                 EMBALAGEM
               </div>
-              <div className="mt-1 font-semibold text-white leading-tight">
+              <div className="mt-1 font-semibold leading-tight text-white">
                 {formatPack(
                   lightbox.product.unit ?? "",
                   lightbox.product.packQty ?? null,
@@ -1404,7 +1426,7 @@ function LightboxML(props: {
               </div>
             </div>
 
-            <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 backdrop-blur-md">
+            <div className="rounded-xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-md">
               {(() => {
                 const unitText = formatPriceCents(
                   lightbox.product.priceCents ?? null,
@@ -1473,24 +1495,24 @@ function LightboxML(props: {
       aria-modal="true"
     >
       <div
-        className="w-full h-full flex flex-col"
+        className="flex h-full w-full flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div
-          className="relative flex items-center justify-center px-12 py-3 shrink-0"
+          className="relative flex shrink-0 items-center justify-center px-12 py-3"
           style={{
             background:
               "linear-gradient(90deg, rgb(11,44,112) 0%, rgb(24,88,180) 45%, rgb(255,122,0) 100%)",
           }}
         >
-          <div className="text-white font-black text-center leading-snug line-clamp-2 max-w-full px-2">
+          <div className="line-clamp-2 max-w-full px-2 text-center font-black leading-snug text-white">
             {lightbox.alt}
           </div>
 
           <button
             type="button"
             onClick={closeLightbox}
-            className="absolute right-3 top-1/2 -translate-y-1/2 z-10 rounded-lg bg-white/15 px-3 py-1.5 text-white font-black hover:bg-white/25"
+            className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-lg bg-white/15 px-3 py-1.5 font-black text-white hover:bg-white/25"
             title="Fechar"
             aria-label="Fechar"
           >
@@ -1498,20 +1520,18 @@ function LightboxML(props: {
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 p-4">
-          <div className="h-full min-h-0 grid grid-cols-1 lg:grid-cols-[92px_1fr_420px] gap-4">
+        <div className="min-h-0 flex-1 p-4">
+          <div className="grid h-full min-h-0 grid-cols-1 gap-4 lg:grid-cols-[92px_1fr_420px]">
             <div className="hidden lg:block">
               {lightbox.urls.length > 1 ? (
-                <div className="h-full overflow-y-auto pr-1 space-y-2">
+                <div className="h-full space-y-2 overflow-y-auto pr-1">
                   {lightbox.urls.map((u, i) => (
                     <button
                       key={`${u}-${i}`}
                       type="button"
-                      onClick={() =>
-                        setLightbox((s) => (s ? { ...s, index: i } : s))
-                      }
+                      onClick={() => setLightbox((s) => (s ? { ...s, index: i } : s))}
                       className={[
-                        "w-full h-[72px] rounded-xl bg-white overflow-hidden flex items-center justify-center",
+                        "flex h-[72px] w-full items-center justify-center overflow-hidden rounded-xl bg-white",
                         "border-2",
                         i === lightbox.index
                           ? "border-sky-500"
@@ -1534,12 +1554,12 @@ function LightboxML(props: {
               )}
             </div>
 
-            <div className="min-h-0 flex flex-col">
-              <div className="relative flex-1 min-h-0 rounded-xl border border-zinc-200 bg-white overflow-hidden">
+            <div className="flex min-h-0 flex-col">
+              <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-zinc-200 bg-white">
                 <button
                   type="button"
                   onClick={() => setZoomOpen(true)}
-                  className="w-full h-full flex items-center justify-center cursor-zoom-in"
+                  className="flex h-full w-full cursor-zoom-in items-center justify-center"
                   title="Clique para ampliar"
                 >
                   <img
@@ -1595,22 +1615,20 @@ function LightboxML(props: {
                   </>
                 )}
 
-                <div className="absolute bottom-3 right-3 rounded-full bg-black/55 px-3 py-1 text-xs font-bold text-white hidden sm:block">
+                <div className="absolute bottom-3 right-3 hidden rounded-full bg-black/55 px-3 py-1 text-xs font-bold text-white sm:block">
                   Clique para ampliar
                 </div>
               </div>
 
               {lightbox.urls.length > 1 && (
-                <div className="mt-3 lg:hidden flex gap-2 overflow-x-auto pb-1">
+                <div className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden">
                   {lightbox.urls.map((u, i) => (
                     <button
                       key={`${u}-${i}`}
                       type="button"
-                      onClick={() =>
-                        setLightbox((s) => (s ? { ...s, index: i } : s))
-                      }
+                      onClick={() => setLightbox((s) => (s ? { ...s, index: i } : s))}
                       className={[
-                        "shrink-0 h-16 w-16 rounded-xl bg-white overflow-hidden flex items-center justify-center",
+                        "flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white",
                         "border-2",
                         i === lightbox.index
                           ? "border-sky-500"
@@ -1632,8 +1650,8 @@ function LightboxML(props: {
             </div>
 
             <div className="min-h-0">
-              <div className="h-full min-h-0 overflow-y-auto pr-1 space-y-3">
-                <div className="rounded-xl bg-zinc-50 border border-zinc-200 p-4">
+              <div className="h-full min-h-0 space-y-3 overflow-y-auto pr-1">
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
                   {brand ? (
                     <div className="mb-3 flex items-center gap-2">
                       <span className="rounded-md bg-white px-2 py-0.5 text-[11px] font-black text-zinc-700 ring-1 ring-zinc-200">
@@ -1650,7 +1668,7 @@ function LightboxML(props: {
                       <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-black text-blue-900 ring-1 ring-blue-900/10">
                         CÓDIGO:
                       </span>
-                      <span className="text-xs font-black text-zinc-700 tracking-wide">
+                      <span className="text-xs font-black tracking-wide text-zinc-700">
                         {lightbox.product.sku}
                       </span>
                     </div>
@@ -1661,7 +1679,7 @@ function LightboxML(props: {
                       <div className="text-[11px] font-black text-zinc-700">
                         DESCRIÇÃO
                       </div>
-                      <div className="mt-1 text-sm text-zinc-900 leading-relaxed">
+                      <div className="mt-1 text-sm leading-relaxed text-zinc-900">
                         {lightbox.product.description}
                       </div>
                     </div>
@@ -1683,10 +1701,12 @@ function LightboxML(props: {
                               title={c.name}
                             >
                               <span
-                                className="h-3 w-3 rounded-full ring-1 ring-black/20 shrink-0"
+                                className="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/20"
                                 style={{ backgroundColor: c.hex }}
                               />
-                              <span className="whitespace-nowrap">{c.name}</span>
+                              <span className="whitespace-nowrap">
+                                {c.name}
+                              </span>
                             </span>
                           ))}
                         </div>
@@ -1780,26 +1800,26 @@ function LightboxML(props: {
 
       {zoomOpen && (
         <div
-          className="fixed inset-0 z-[60] bg-black/90 p-4 flex items-center justify-center"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4"
           onClick={() => setZoomOpen(false)}
           role="dialog"
           aria-modal="true"
         >
           <div
-            className="relative w-[96vw] h-[92vh] rounded-2xl overflow-hidden"
+            className="relative h-[92vh] w-[96vw] overflow-hidden rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               type="button"
               onClick={() => setZoomOpen(false)}
-              className="absolute right-3 top-3 z-10 rounded-full bg-white/15 px-4 py-2 text-white font-black hover:bg-white/25"
+              className="absolute right-3 top-3 z-10 rounded-full bg-white/15 px-4 py-2 font-black text-white hover:bg-white/25"
               title="Fechar"
               aria-label="Fechar"
             >
               ✕
             </button>
 
-            <div className="w-full h-full flex items-center justify-center">
+            <div className="flex h-full w-full items-center justify-center">
               <img
                 src={imgUrl}
                 alt={lightbox.alt}
@@ -1814,7 +1834,7 @@ function LightboxML(props: {
                   type="button"
                   onClick={prevImage}
                   disabled={lightbox.index === 0}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 z-20 rounded-full bg-black/35 p-3 text-white shadow-lg backdrop-blur-sm disabled:opacity-30"
+                  className="absolute left-3 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/35 p-3 text-white shadow-lg backdrop-blur-sm disabled:opacity-30"
                   title="Anterior"
                   aria-label="Anterior"
                 >
@@ -1834,7 +1854,7 @@ function LightboxML(props: {
                   type="button"
                   onClick={nextImage}
                   disabled={lightbox.index >= lightbox.urls.length - 1}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 z-20 rounded-full bg-black/35 p-3 text-white shadow-lg backdrop-blur-sm disabled:opacity-30"
+                  className="absolute right-3 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/35 p-3 text-white shadow-lg backdrop-blur-sm disabled:opacity-30"
                   title="Próxima"
                   aria-label="Próxima"
                 >
